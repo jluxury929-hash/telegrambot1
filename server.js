@@ -1,15 +1,9 @@
 /**
  * ===============================================================================
- * APEX PREDATOR TITAN v400.0
+ * APEX PREDATOR TITAN v400.1
  * ===============================================================================
- * MERGED FEATURES:
- * - BASE: v204.7 deterministic JS execution
- * - AI: v300 Reinforcement + Web Sentiment
- * - Executor: v133 Solidity atomic flash loan
- * - Multi-Chain: ETH, BASE, ARB, POLY
- * - Simulation Mode + Telegram Controls
- * - Flashbots Dual-Channel
- * - On-chain Profit Accounting
+ * Telegram Bot Integration: t.me/ApexMillionsFlashBot
+ * API TOKEN: 8170675461:AAFgVbogXYrJ10QXLMpKsKUHBqx39ZRcYl8
  * ===============================================================================
  */
 
@@ -21,7 +15,6 @@ const fs = require('fs');
 const http = require('http');
 const WebSocket = require('ws');
 const cluster = require('cluster');
-const os = require('os');
 const { FlashbotsBundleProvider } = require('@flashbots/ethers-provider-bundle');
 const TelegramBot = require('node-telegram-bot-api');
 require('colors');
@@ -31,8 +24,8 @@ require('colors');
 // ==========================================
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const EXECUTOR = process.env.EXECUTOR_ADDRESS;
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_TOKEN = "8170675461:AAFgVbogXYrJ10QXLMpKsKUHBqx39ZRcYl8"; // your bot token
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // your target chat/group id
 
 const NETWORKS = {
     ETHEREUM: { chainId: 1, rpc: process.env.ETH_RPC || "https://eth.llamarpc.com", wss: process.env.ETH_WSS, moat: "0.005", priority: "2" },
@@ -43,11 +36,11 @@ const NETWORKS = {
 
 const AI_SITES = ["https://api.crypto-ai-signals.com/v1/latest", "https://top-trading-ai-blog.com/alerts"];
 const SIMULATION_MODE = { enabled: true };
-let MINER_BRIBE = 50; // default 50%
+let MINER_BRIBE = 50;
 let ACTIVE_SIGNALS = [];
 
 // ==========================================
-// 1. TELEGRAM BOT
+// 1. TELEGRAM BOT SETUP
 // ==========================================
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
@@ -83,7 +76,7 @@ class AIEngine {
 
     loadTrust() {
         if (fs.existsSync(this.trustFile)) {
-            try { return JSON.parse(fs.readFileSync(this.trustFile, 'utf8')); } catch(e){ return { WEB_AI:0.85 }; }
+            try { return JSON.parse(fs.readFileSync(this.trustFile,'utf8')); } catch(e){ return { WEB_AI:0.85 }; }
         }
         return { WEB_AI:0.85 };
     }
@@ -104,14 +97,14 @@ class AIEngine {
                 const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
                 const analysis = this.sentiment.analyze(text);
                 const tickers = text.match(/\$[A-Z]+/g);
-                if (tickers && analysis.comparative > 0.1) {
-                    const ticker = tickers[0].replace('$', '');
-                    if(!signals.find(s=>s.ticker===ticker)) signals.push({ ticker, confidence: analysis.comparative, source:"WEB_AI" });
+                if(tickers && analysis.comparative>0.1){
+                    const ticker = tickers[0].replace('$','');
+                    if(!signals.find(s=>s.ticker===ticker)) signals.push({ticker,confidence:analysis.comparative,source:"WEB_AI"});
                 }
             } catch(e){}
         }
         ACTIVE_SIGNALS = signals;
-        if(signals.length>0) bot.sendMessage(TELEGRAM_CHAT_ID, `🧠 AI UPDATE: ${signals.map(s=>s.ticker).join(', ')}`);
+        if(signals.length>0) bot.sendMessage(TELEGRAM_CHAT_ID, `🧠 AI UPDATE: ${signals.map(s=>s.ticker).join(',')}`);
         return signals;
     }
 }
@@ -122,11 +115,10 @@ class AIEngine {
 if(cluster.isPrimary){
     console.clear();
     console.log(`╔════════════════════════════════╗`.gold);
-    console.log(`║ ⚡ APEX PREDATOR TITAN v400.0 ║`.gold);
+    console.log(`║ ⚡ APEX PREDATOR TITAN v400.1 ║`.gold);
     console.log(`╚════════════════════════════════╝`.gold);
     
-    Object.keys(NETWORKS).forEach(chain => cluster.fork({CHAIN:chain}));
-    
+    Object.keys(NETWORKS).forEach(chain=>cluster.fork({CHAIN:chain}));
     cluster.on('exit',(worker)=>{ console.log(`Worker ${worker.process.pid} died, respawning...`.red); cluster.fork({CHAIN:worker.process.env.CHAIN}); });
 } else {
     runWorker(process.env.CHAIN);
@@ -140,19 +132,17 @@ async function runWorker(chainName){
     const ai = new AIEngine();
 
     let flashbots = null;
-    if(chainName==="ETHEREUM" && config.relay!=="") {
-        try {
+    if(chainName==="ETHEREUM"){
+        try{
             const authSigner = Wallet.createRandom();
-            flashbots = await FlashbotsBundleProvider.create(provider, authSigner, config.relay);
-            console.log(`[${chainName}] Flashbots Active`.green);
+            flashbots = await FlashbotsBundleProvider.create(provider, authSigner, "https://relay.flashbots.net");
         } catch(e){ console.log(`[${chainName}] Flashbots Init Fail: ${e.message}`.red); }
     }
 
-    // WebSocket Pending Tx
     if(config.wss){
         const ws = new WebSocket(config.wss);
         ws.on('open',()=>console.log(`[${chainName}] WebSocket Connected`.cyan));
-        ws.on('message', async data=>{
+        ws.on('message',async data=>{
             try{
                 const payload = JSON.parse(data);
                 if(payload.params && payload.params.result){
@@ -165,7 +155,6 @@ async function runWorker(chainName){
         });
     }
 
-    // Continuous AI Scans
     setInterval(async()=>{await ai.scanSignals();},5000);
 }
 
@@ -175,11 +164,11 @@ async function runWorker(chainName){
 async function strike(provider,wallet,contract,chain,ticker,confidence,source,flashbots){
     try{
         const balance = await provider.getBalance(wallet.address);
-        const overhead = ethers.parseEther("0.01"); // estimate gas + moat
+        const overhead = ethers.parseEther("0.01");
         if(balance<overhead) return;
 
         let tradeAmount = balance-overhead;
-        tradeAmount = SIMULATION_MODE.enabled?tradeAmount/10n:tradeAmount; // smaller for simulation
+        tradeAmount = SIMULATION_MODE.enabled?tradeAmount/10n:tradeAmount;
 
         const path = ["ETH",ticker,"ETH"];
         const txData = await contract.populateTransaction.executeComplexPath(path,tradeAmount,{value:overhead,gasLimit:1500000n});
@@ -198,7 +187,6 @@ async function strike(provider,wallet,contract,chain,ticker,confidence,source,fl
             bot.sendMessage(TELEGRAM_CHAT_ID, `✅ TRADE: ${chain} | Path: ${path.join("->")} | Tx: ${txResp.hash} | AI Conf: ${(confidence*100).toFixed(1)}% | Bribe: ${MINER_BRIBE}%`);
             await txResp.wait(1);
         }
-        // Update AI trust
         const ai = new AIEngine();
         ai.updateTrust(source,true);
     } catch(e){
@@ -213,5 +201,5 @@ async function strike(provider,wallet,contract,chain,ticker,confidence,source,fl
 // ==========================================
 http.createServer((req,res)=>{
     res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({engine:"APEX PREDATOR TITAN",version:"v400.0",simulation:SIMULATION_MODE.enabled}));
+    res.end(JSON.stringify({engine:"APEX PREDATOR TITAN",version:"v400.1",simulation:SIMULATION_MODE.enabled}));
 }).listen(8080,()=>console.log("[SYSTEM] Health server active on 8080".cyan));
