@@ -34,7 +34,7 @@ const NETWORKS = {
     POLYGON: { chainId: 137, rpc: process.env.POLY_RPC || "https://polygon-rpc.com", wss: process.env.POLY_WSS }
 };
 
-const AI_SITES = ["https://api.crypto-ai-signals.com/v1/latest","https://top-trading-ai-blog.com/alerts"];
+const AI_SITES = ["https://api.crypto-ai-signals.com/v1/latest", "https://top-trading-ai-blog.com/alerts"];
 let ACTIVE_SIGNALS = [];
 let MINER_BRIBE = 50;
 let SIMULATION_MODE = { enabled: true };
@@ -76,9 +76,9 @@ class AIEngine {
 
     loadTrust() {
         if (fs.existsSync(this.trustFile)) {
-            try { return JSON.parse(fs.readFileSync(this.trustFile,'utf8')); } catch(e){ return { WEB_AI:0.85 }; }
+            try { return JSON.parse(fs.readFileSync(this.trustFile, 'utf8')); } catch (e) { return { WEB_AI: 0.85 }; }
         }
-        return { WEB_AI:0.85 };
+        return { WEB_AI: 0.85 };
     }
 
     updateTrust(source, success) {
@@ -97,14 +97,14 @@ class AIEngine {
                 const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
                 const analysis = this.sentiment.analyze(text);
                 const tickers = text.match(/\$[A-Z]+/g);
-                if(tickers && analysis.comparative>0.1){
-                    const ticker = tickers[0].replace('$','');
-                    if(!signals.find(s=>s.ticker===ticker)) signals.push({ticker,confidence:analysis.comparative,source:"WEB_AI"});
+                if (tickers && analysis.comparative > 0.1) {
+                    const ticker = tickers[0].replace('$', '');
+                    if (!signals.find(s => s.ticker === ticker)) signals.push({ ticker, confidence: analysis.comparative, source: "WEB_AI" });
                 }
-            } catch(e){}
+            } catch (e) { }
         }
         ACTIVE_SIGNALS = signals;
-        if(signals.length>0) bot.sendMessage(TELEGRAM_CHAT_ID, `🧠 AI UPDATE: ${signals.map(s=>s.ticker).join(',')}`);
+        if (signals.length > 0) bot.sendMessage(TELEGRAM_CHAT_ID, `🧠 AI UPDATE: ${signals.map(s => s.ticker).join(',')}`);
         return signals;
     }
 }
@@ -112,22 +112,22 @@ class AIEngine {
 // ==========================================
 // 3. WORKER ENGINE
 // ==========================================
-if(cluster.isPrimary){
+if (cluster.isPrimary) {
     console.clear();
     console.log(`╔════════════════════════════════╗`.gold);
     console.log(`║ ⚡ APEX PREDATOR TITAN v400.1 ║`.gold);
     console.log(`╚════════════════════════════════╝`.gold);
-    
-    Object.keys(NETWORKS).forEach(chain=>cluster.fork({CHAIN:chain}));
-    cluster.on('exit',(worker)=>{
+
+    Object.keys(NETWORKS).forEach(chain => cluster.fork({ CHAIN: chain }));
+    cluster.on('exit', (worker) => {
         console.log(`Worker ${worker.process.pid} died, respawning...`.red);
-        cluster.fork({CHAIN:worker.process.env.CHAIN});
+        cluster.fork({ CHAIN: worker.process.env.CHAIN });
     });
 } else {
     runWorker(process.env.CHAIN);
 }
 
-async function runWorker(chainName){
+async function runWorker(chainName) {
     const config = NETWORKS[chainName];
     const provider = new JsonRpcProvider(config.rpc, config.chainId);
     const wallet = new Wallet(PRIVATE_KEY, provider);
@@ -135,74 +135,74 @@ async function runWorker(chainName){
     const ai = new AIEngine();
 
     let flashbots = null;
-    if(chainName==="ETHEREUM"){
-        try{
+    if (chainName === "ETHEREUM") {
+        try {
             const authSigner = Wallet.createRandom();
             flashbots = await FlashbotsBundleProvider.create(provider, authSigner, "https://relay.flashbots.net");
-        } catch(e){ console.log(`[${chainName}] Flashbots Init Fail: ${e.message}`.red); }
+        } catch (e) { console.log(`[${chainName}] Flashbots Init Fail: ${e.message}`.red); }
     }
 
-    if(config.wss){
+    if (config.wss) {
         const ws = new WebSocket(config.wss);
-        ws.on('open',()=>console.log(`[${chainName}] WebSocket Connected`.cyan));
-        ws.on('message',async data=>{
-            try{
+        ws.on('open', () => console.log(`[${chainName}] WebSocket Connected`.cyan));
+        ws.on('message', async data => {
+            try {
                 const payload = JSON.parse(data);
-                if(payload.params && payload.params.result){
-                    const signals = ACTIVE_SIGNALS.length>0?ACTIVE_SIGNALS:[{ticker:"DISCOVERY",confidence:0.5,source:"DISCOVERY"}];
-                    for(const sig of signals){
-                        await strike(provider,wallet,executorContract,chainName,sig.ticker,sig.confidence,sig.source,flashbots);
+                if (payload.params && payload.params.result) {
+                    const signals = ACTIVE_SIGNALS.length > 0 ? ACTIVE_SIGNALS : [{ ticker: "DISCOVERY", confidence: 0.5, source: "DISCOVERY" }];
+                    for (const sig of signals) {
+                        // FIX: Pass 'ai' instance to strike function
+                        await strike(provider, wallet, executorContract, chainName, sig.ticker, sig.confidence, sig.source, flashbots, ai);
                     }
                 }
-            } catch(e){}
+            } catch (e) { }
         });
     }
 
-    setInterval(async()=>{await ai.scanSignals();},5000);
+    setInterval(async () => { await ai.scanSignals(); }, 5000);
 }
 
 // ==========================================
 // 4. STRIKE LOGIC
 // ==========================================
-async function strike(provider,wallet,contract,chain,ticker,confidence,source,flashbots){
-    try{
+async function strike(provider, wallet, contract, chain, ticker, confidence, source, flashbots, ai) {
+    try {
         const balance = await provider.getBalance(wallet.address);
         const overhead = ethers.parseEther("0.01");
-        if(balance<overhead) return;
+        if (balance < overhead) return;
 
         let tradeAmount = balance - overhead;
-        tradeAmount = SIMULATION_MODE.enabled?tradeAmount/10n:tradeAmount;
+        tradeAmount = SIMULATION_MODE.enabled ? tradeAmount / 10n : tradeAmount;
 
-        const path = ["ETH",ticker,"ETH"];
-        const txData = await contract.populateTransaction.executeComplexPath(path,tradeAmount,{value:overhead,gasLimit:1500000n});
+        const path = ["ETH", ticker, "ETH"];
+        const txData = await contract.populateTransaction.executeComplexPath(path, tradeAmount, { value: overhead, gasLimit: 1500000n });
 
-        if(SIMULATION_MODE.enabled){
-            bot.sendMessage(TELEGRAM_CHAT_ID, `🧪 SIMULATION: ${chain} | Path: ${path.join("->")} | Amt: ${ethers.formatEther(tradeAmount)} ETH | AI Conf: ${(confidence*100).toFixed(1)}%`);
+        if (SIMULATION_MODE.enabled) {
+            bot.sendMessage(TELEGRAM_CHAT_ID, `🧪 SIMULATION: ${chain} | Path: ${path.join("->")} | Amt: ${ethers.formatEther(tradeAmount)} ETH | AI Conf: ${(confidence * 100).toFixed(1)}%`);
             return;
         }
 
-        if(flashbots && chain==="ETHEREUM"){
-            const bundle = [{signer:wallet,transaction:txData}];
-            const block = await provider.getBlockNumber()+1;
-            await flashbots.sendBundle(bundle,block);
+        if (flashbots && chain === "ETHEREUM") {
+            const bundle = [{ signer: wallet, transaction: txData }];
+            const block = await provider.getBlockNumber() + 1;
+            await flashbots.sendBundle(bundle, block);
         } else {
             const txResp = await wallet.sendTransaction(txData);
-            bot.sendMessage(TELEGRAM_CHAT_ID, `✅ TRADE: ${chain} | Path: ${path.join("->")} | Tx: ${txResp.hash} | AI Conf: ${(confidence*100).toFixed(1)}% | Bribe: ${MINER_BRIBE}%`);
+            bot.sendMessage(TELEGRAM_CHAT_ID, `✅ TRADE: ${chain} | Path: ${path.join("->")} | Tx: ${txResp.hash} | AI Conf: ${(confidence * 100).toFixed(1)}% | Bribe: ${MINER_BRIBE}%`);
             await txResp.wait(1);
         }
 
-        ai.updateTrust(source,true);
-    } catch(e){
+        if (ai) ai.updateTrust(source, true);
+    } catch (e) {
         console.log(`[${chain}] Strike Error: ${e.message}`.red);
-        ai.updateTrust(source,false);
+        if (ai) ai.updateTrust(source, false);
     }
 }
 
 // ==========================================
 // 5. HEALTH SERVER
 // ==========================================
-http.createServer((req,res)=>{
-    res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({engine:"APEX PREDATOR TITAN",version:"v400.1",simulation:SIMULATION_MODE.enabled}));
-}).listen(8080,()=>console.log("[SYSTEM] Health server active on 8080".cyan));
-
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ engine: "APEX PREDATOR TITAN", version: "v400.1", simulation: SIMULATION_MODE.enabled }));
+}).listen(8080, () => console.log("[SYSTEM] Health server active on 8080".cyan));
