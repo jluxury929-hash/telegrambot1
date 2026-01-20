@@ -1,9 +1,9 @@
 /**
  * ===============================================================================
- * APEX PREDATOR TITAN v400.1
+ * APEX PREDATOR TITAN v400.1 (Hybrid Flash + Telegram)
  * ===============================================================================
- * Telegram Bot Integration: t.me/ApexMillionsFlashBot
- * API TOKEN: 8170675461:AAFgVbogXYrJ10QXLMpKsKUHBqx39ZRcYl8
+ * Telegram Bot Integration: t.me/ApexPredatorFlashBot
+ * API TOKEN: 8041662519:AAE3NRrjFJsOQzmfxkx5OX5A-X-ACVaP0Qk
  * ===============================================================================
  */
 
@@ -24,23 +24,23 @@ require('colors');
 // ==========================================
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const EXECUTOR = process.env.EXECUTOR_ADDRESS;
-const TELEGRAM_TOKEN = "8170675461:AAFgVbogXYrJ10QXLMpKsKUHBqx39ZRcYl8"; // your bot token
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // your target chat/group id
+const TELEGRAM_TOKEN = "8041662519:AAE3NRrjFJsOQzmfxkx5OX5A-X-ACVaP0Qk";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // target chat/group
 
 const NETWORKS = {
-    ETHEREUM: { chainId: 1, rpc: process.env.ETH_RPC || "https://eth.llamarpc.com", wss: process.env.ETH_WSS, moat: "0.005", priority: "2" },
-    BASE: { chainId: 8453, rpc: process.env.BASE_RPC || "https://mainnet.base.org", wss: process.env.BASE_WSS, moat: "0.001", priority: "0.1" },
-    ARBITRUM: { chainId: 42161, rpc: process.env.ARB_RPC || "https://arb1.arbitrum.io/rpc", wss: process.env.ARB_WSS, moat: "0.002", priority: "0.1" },
-    POLYGON: { chainId: 137, rpc: process.env.POLY_RPC || "https://polygon-rpc.com", wss: process.env.POLY_WSS, moat: "0.001", priority: "35" }
+    ETHEREUM: { chainId: 1, rpc: process.env.ETH_RPC || "https://eth.llamarpc.com", wss: process.env.ETH_WSS, relay: "https://relay.flashbots.net" },
+    BASE: { chainId: 8453, rpc: process.env.BASE_RPC || "https://mainnet.base.org", wss: process.env.BASE_WSS },
+    ARBITRUM: { chainId: 42161, rpc: process.env.ARB_RPC || "https://arb1.arbitrum.io/rpc", wss: process.env.ARB_WSS },
+    POLYGON: { chainId: 137, rpc: process.env.POLY_RPC || "https://polygon-rpc.com", wss: process.env.POLY_WSS }
 };
 
-const AI_SITES = ["https://api.crypto-ai-signals.com/v1/latest", "https://top-trading-ai-blog.com/alerts"];
-const SIMULATION_MODE = { enabled: true };
-let MINER_BRIBE = 50;
+const AI_SITES = ["https://api.crypto-ai-signals.com/v1/latest","https://top-trading-ai-blog.com/alerts"];
 let ACTIVE_SIGNALS = [];
+let MINER_BRIBE = 50;
+let SIMULATION_MODE = { enabled: true };
 
 // ==========================================
-// 1. TELEGRAM BOT SETUP
+// 1. TELEGRAM BOT
 // ==========================================
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
@@ -110,7 +110,7 @@ class AIEngine {
 }
 
 // ==========================================
-// 3. WORKER ENGINE (CLUSTER + MULTI-CHAIN)
+// 3. WORKER ENGINE
 // ==========================================
 if(cluster.isPrimary){
     console.clear();
@@ -119,7 +119,10 @@ if(cluster.isPrimary){
     console.log(`╚════════════════════════════════╝`.gold);
     
     Object.keys(NETWORKS).forEach(chain=>cluster.fork({CHAIN:chain}));
-    cluster.on('exit',(worker)=>{ console.log(`Worker ${worker.process.pid} died, respawning...`.red); cluster.fork({CHAIN:worker.process.env.CHAIN}); });
+    cluster.on('exit',(worker)=>{
+        console.log(`Worker ${worker.process.pid} died, respawning...`.red);
+        cluster.fork({CHAIN:worker.process.env.CHAIN});
+    });
 } else {
     runWorker(process.env.CHAIN);
 }
@@ -167,7 +170,7 @@ async function strike(provider,wallet,contract,chain,ticker,confidence,source,fl
         const overhead = ethers.parseEther("0.01");
         if(balance<overhead) return;
 
-        let tradeAmount = balance-overhead;
+        let tradeAmount = balance - overhead;
         tradeAmount = SIMULATION_MODE.enabled?tradeAmount/10n:tradeAmount;
 
         const path = ["ETH",ticker,"ETH"];
@@ -187,11 +190,10 @@ async function strike(provider,wallet,contract,chain,ticker,confidence,source,fl
             bot.sendMessage(TELEGRAM_CHAT_ID, `✅ TRADE: ${chain} | Path: ${path.join("->")} | Tx: ${txResp.hash} | AI Conf: ${(confidence*100).toFixed(1)}% | Bribe: ${MINER_BRIBE}%`);
             await txResp.wait(1);
         }
-        const ai = new AIEngine();
+
         ai.updateTrust(source,true);
     } catch(e){
         console.log(`[${chain}] Strike Error: ${e.message}`.red);
-        const ai = new AIEngine();
         ai.updateTrust(source,false);
     }
 }
@@ -203,3 +205,4 @@ http.createServer((req,res)=>{
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({engine:"APEX PREDATOR TITAN",version:"v400.1",simulation:SIMULATION_MODE.enabled}));
 }).listen(8080,()=>console.log("[SYSTEM] Health server active on 8080".cyan));
+
