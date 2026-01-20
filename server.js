@@ -24,7 +24,7 @@ require('colors');
 // ==========================================
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const EXECUTOR = process.env.EXECUTOR_ADDRESS;
-const TELEGRAM_TOKEN = "8041662519:AAE3NRrjFJsOQzmfxkx5OX5A-X-ACVaP0Qk";
+const TELEGRAM_TOKEN = "7903779688:AAGFMT3fWaYgc9vKBhxNQRIdB5AhmX0U9Nw";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 // SAFETY CHECK: Validate addresses before starting
