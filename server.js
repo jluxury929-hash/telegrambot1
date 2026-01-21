@@ -1,7 +1,7 @@
 /**
  * ===============================================================================
- * 🦍 APEX PREDATOR: OMEGA TOTALITY v100000.0 (FINAL)
- * 🎮 FEATURES: RPG + RISK ENGINE + SECURE WALLET + CONTEXTUAL APPROVE
+ * 🦍 APEX PREDATOR: OMEGA TOTALITY v100000.0 (MICRO-TRADING FIX)
+ * 🎮 FEATURES: RPG + RISK ENGINE + SECURE WALLET + CONTEXTUAL APPROVE + MICRO ETH
  * ===============================================================================
  */
 
@@ -128,7 +128,7 @@ const getXpBar = () => {
 };
 
 // ==========================================
-// ⚙️ SYSTEM STATE
+// ⚙️ SYSTEM STATE (MINIMAL EDITS HERE)
 // ==========================================
 
 let SYSTEM = {
@@ -137,14 +137,20 @@ let SYSTEM = {
     nonce: null,
     riskProfile: 'MEDIUM',
     strategyMode: 'DAY',
-    tradeAmount: "0.01",
+    
+    // 🔽 UPDATED: Default to 0.00002 ETH (~$0.06 USD)
+    tradeAmount: "0.00002",
+    
     get slippage() { return RISK_PROFILES[this.riskProfile].slippage; },
     get stopLoss() { return RISK_PROFILES[this.riskProfile].stopLoss; },
     get gasMultiplier() { return RISK_PROFILES[this.riskProfile].gasMultiplier; },
     get trailingStopPercent() { return STRATEGY_MODES[this.strategyMode].trail; },
-    minGasBuffer: ethers.parseEther("0.008"),
+    
+    // 🔽 UPDATED: Lowered buffer so $5 balance doesn't trigger "HALT"
+    minGasBuffer: ethers.parseEther("0.00002"),
+    
     activePosition: null,
-    pendingTarget: null // STORES LAST SCAN RESULT FOR /approve
+    pendingTarget: null 
 };
 
 // ==========================================
@@ -395,19 +401,17 @@ bot.onText(/\/scan/i, (msg) => {
     runScanner(msg.chat.id, false);
 });
 
-// APPROVE - Handles both "/approve" (contextual) and "/approve <address>" (override)
+// APPROVE
 bot.onText(/\/approve(?:\s+(.+))?/i, async (msg, match) => {
     if (!wallet) return bot.sendMessage(msg.chat.id, "⚠️ **NO WALLET:** Please /connect first.");
     
     let target = null;
-    const manualAddr = match[1]; // Optional argument
+    const manualAddr = match[1]; 
 
     if (manualAddr) {
-        // CASE A: Manual Override
         bot.sendMessage(msg.chat.id, `⚡ **MANUAL OVERRIDE:** Target set to ${manualAddr}`);
         target = { tokenAddress: manualAddr, symbol: "MANUAL_TARGET" };
     } else {
-        // CASE B: Contextual Approval
         if (SYSTEM.pendingTarget) {
             target = SYSTEM.pendingTarget;
             bot.sendMessage(msg.chat.id, `✅ **APPROVED:** Executing buy for ${target.symbol}...`);
