@@ -1,6 +1,6 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR: OMEGA TOTALITY v100002.0 (VISUAL UPGRADE)
+ * 🦁 APEX PREDATOR: OMEGA TOTALITY v100002.0 (VISUAL UPGRADE + NO REPEATS)
  * FEATURES: RPG + RISK ENGINE + SECURE WALLET + SCAN/APPROVE + ETHERSCAN LINKS
  * ===============================================================================
  */
@@ -145,7 +145,7 @@ let SYSTEM = {
     minGasBuffer: ethers.parseEther("0.00002"),
     activePosition: null,
     pendingTarget: null,
-    lastTradedToken: null // <--- Memory to prevent duplicate trades
+    lastTradedToken: null // <--- NEW: Memory to prevent duplicate trades
 };
 
 // ==========================================
@@ -188,6 +188,7 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
             ]);
 
             if (receipt && receipt.status === 1n) {
+                //  UPDATED: Creates Etherscan Link
                 const link = `https://etherscan.io/tx/${receipt.hash}`;
                 console.log(`[SUCCESS] ${type} Confirmed: ${receipt.hash}`.green);
                 
@@ -585,4 +586,4 @@ http.createServer((req, res) => res.end("V100000_APEX_ONLINE")).listen(8080).on(
     console.log("Port 8080 busy, likely another instance running. Please kill it.".red);
 });
 
-console.log("🦁 APEX TOTALITY v100002 ONLINE [VISUAL UPGRADE].".magenta);
+console.log("🦁 APEX TOTALITY v100002 ONLINE [VISUAL UPGRADE + NO REPEATS].".magenta);
