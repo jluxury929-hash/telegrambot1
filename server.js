@@ -285,7 +285,7 @@ async function executeSell(chatId) {
     });
 
     if (receipt) {
-        SYSTEM.lastTradedToken = address; // <--- SAVES THE SOLD TOKEN
+        SYSTEM.lastTradedToken = address.toLowerCase(); // <--- SAVES THE SOLD TOKEN (Normalized)
         SYSTEM.activePosition = null;
         if (SYSTEM.autoPilot) {
             bot.sendMessage(chatId, "🔄 **ROTATION:** Sell complete. Hunting next target...");
@@ -323,7 +323,7 @@ async function runScanner(chatId, isAuto = false) {
             // 2. SMART ROTATION LOGIC:
             // This line iterates through the list and picks the FIRST token that is NOT the last traded one.
             // If the #1 token is the duplicate, it automatically selects #2. If #2 is duplicate (rare), it picks #3.
-            let rawTarget = boosted.find(t => t.tokenAddress !== SYSTEM.lastTradedToken);
+            let rawTarget = boosted.find(t => t.tokenAddress.toLowerCase() !== SYSTEM.lastTradedToken);
             
             if (rawTarget) {
                  // 3. ENRICH DATA: Fetch Full Name and Symbol
@@ -370,6 +370,14 @@ async function runScanner(chatId, isAuto = false) {
 }
 
 async function executeBuy(chatId, target) {
+    // FINAL GUARD: Check if we are repeating the last trade manually or automatically
+    if (SYSTEM.lastTradedToken && target.tokenAddress.toLowerCase() === SYSTEM.lastTradedToken) {
+        bot.sendMessage(chatId, `⚠️ **DUPLICATE BLOCKED:** Skipping ${target.symbol} (Recently Sold). Finding next best target...`);
+        // If auto, trigger scanner again to find the NEXT best one
+        if (SYSTEM.autoPilot) runScanner(chatId, true);
+        return;
+    }
+
     const tradeValue = ethers.parseEther(SYSTEM.tradeAmount);
     const amounts = await router.getAmountsOut(tradeValue, [WETH, target.tokenAddress]);
     const minOut = (amounts[1] * BigInt(10000 - SYSTEM.slippage)) / 10000n;
