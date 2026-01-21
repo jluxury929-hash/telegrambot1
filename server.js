@@ -1,16 +1,16 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR: OMEGA TOTALITY v100005.0 (TITAN ENGINE INTEGRATED)
- * FEATURES: 
- * 1. TITAN EXECUTION: Flashbots + Saturation Broadcast
- * 2. SMART ROTATION: Auto-skips duplicates to hunt next best target
- * 3. RPG SYSTEM: XP, Levels, Quests
+ * 🦁 APEX PREDATOR: OMEGA TOTALITY v100006.0 (TITAN NUCLEAR - BLOCK WINNER)
+ * FEATURES:
+ * 1. MULTI-BLOCK BUNDLING (Target Block +1 and +2 simultaneously)
+ * 2. NUCLEAR GAS (300-500% Aggression)
+ * 3. 3-SECOND RETRY LOOP (Zero Latency Re-Broadcast)
  * ===============================================================================
  */
 
 require('dotenv').config();
 const { ethers, Wallet, Contract, JsonRpcProvider } = require('ethers');
-const { FlashbotsBundleProvider } = require("@flashbots/ethers-provider-bundle"); // TITAN UPGRADE
+const { FlashbotsBundleProvider } = require("@flashbots/ethers-provider-bundle");
 const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
@@ -19,13 +19,13 @@ require('colors');
 // --- CONFIGURATION ---
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 
-//  MEV-SHIELDED CLUSTER POOL (Saturation Targets)
+//  MEV-SHIELDED CLUSTER POOL
 const RPC_POOL = [
     "https://rpc.mevblocker.io",        // Primary
     "https://rpc.flashbots.net/fast",   // Secondary
     "https://eth.llamarpc.com",         // Fallback
-    "https://rpc.ankr.com/eth",         // TITAN Addition
-    "https://1rpc.io/eth"               // TITAN Addition
+    "https://rpc.ankr.com/eth",
+    "https://1rpc.io/eth"
 ];
 
 const ROUTER_ADDR = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
@@ -47,7 +47,7 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
 // Global Wallet & Router
 let wallet = null;
 let router = null;
-let flashbotsProvider = null; // TITAN UPGRADE
+let flashbotsProvider = null;
 
 // Try to load from .env
 if (process.env.PRIVATE_KEY) {
@@ -60,13 +60,12 @@ if (process.env.PRIVATE_KEY) {
         ], wallet);
         console.log(`[INIT] Wallet loaded from .env: ${wallet.address}`.green);
 
-        // TITAN UPGRADE: Initialize Flashbots
+        // INIT FLASHBOTS
         FlashbotsBundleProvider.create(provider, Wallet.createRandom(), "https://relay.flashbots.net")
             .then(fb => {
                 flashbotsProvider = fb;
-                console.log(`[INIT] ⚡ TITAN ENGINE: Flashbots Relay Connected`.gold);
-            })
-            .catch(e => console.error(`[INIT] Flashbots Error: ${e.message}`.red));
+                console.log(`[INIT] ☢️ TITAN NUCLEAR ENGINE: Flashbots Active`.magenta);
+            });
 
     } catch (e) {
         console.log(`[INIT] Invalid .env PRIVATE_KEY. Waiting for /connect command.`.red);
@@ -74,14 +73,14 @@ if (process.env.PRIVATE_KEY) {
 }
 
 // ==========================================
-//  ADVANCED CONFIGURATION
+//  NUCLEAR CONFIGURATION (BLOCK WINNER)
 // ==========================================
 
 const RISK_PROFILES = {
-    LOW:    { slippage: 50,   stopLoss: 10, gasMultiplier: 110n, label: "🛡️ LOW (Safe)" },
-    MEDIUM: { slippage: 200,  stopLoss: 20, gasMultiplier: 125n, label: "⚖️ MEDIUM (Balanced)" },
-    HIGH:   { slippage: 500,  stopLoss: 40, gasMultiplier: 150n, label: "⚔️ HIGH (Aggressive)" },
-    DEGEN:  { slippage: 2000, stopLoss: 60, gasMultiplier: 200n, label: "☣️ DEGEN (YOLO)" }
+    LOW:    { slippage: 50,   stopLoss: 10, gasMultiplier: 120n, label: "🛡️ LOW (Safe)" },
+    MEDIUM: { slippage: 200,  stopLoss: 20, gasMultiplier: 150n, label: "⚖️ MEDIUM (Balanced)" },
+    HIGH:   { slippage: 500,  stopLoss: 40, gasMultiplier: 200n, label: "⚔️ HIGH (Aggressive)" },
+    DEGEN:  { slippage: 2000, stopLoss: 60, gasMultiplier: 300n, label: "☢️ NUCLEAR (Block Winner)" }
 };
 
 const STRATEGY_MODES = {
@@ -90,8 +89,25 @@ const STRATEGY_MODES = {
     MOON:   { trail: 30, label: "🚀 MOON (Sell on 30% dip)" }  
 };
 
+let SYSTEM = {
+    autoPilot: false,
+    isLocked: false,
+    nonce: null,
+    riskProfile: 'DEGEN', // DEFAULT TO NUCLEAR
+    strategyMode: 'DAY',
+    tradeAmount: "0.00002",
+    get slippage() { return RISK_PROFILES[this.riskProfile].slippage; },
+    get stopLoss() { return RISK_PROFILES[this.riskProfile].stopLoss; },
+    get gasMultiplier() { return RISK_PROFILES[this.riskProfile].gasMultiplier; },
+    get trailingStopPercent() { return STRATEGY_MODES[this.strategyMode].trail; },
+    minGasBuffer: ethers.parseEther("0.00002"),
+    activePosition: null,
+    pendingTarget: null,
+    lastTradedToken: null
+};
+
 // ==========================================
-//  PERSISTENT STATE (RPG & STATS)
+//  PERSISTENT STATE
 // ==========================================
 
 let PLAYER = {
@@ -103,7 +119,7 @@ let PLAYER = {
         { id: 'sim', task: "Scan Market Depth", count: 0, target: 5, done: false, xp: 150 },
         { id: 'trade', task: "Execute Shielded Protocol", count: 0, target: 1, done: false, xp: 500 }
     ],
-    inventory: ["MEV Shield v1", "Gas Goggles"],
+    inventory: ["MEV Shield v2", "Nuclear Codes"],
     totalProfitEth: 0.0
 };
 
@@ -144,28 +160,7 @@ const getXpBar = () => {
 };
 
 // ==========================================
-//  SYSTEM STATE
-// ==========================================
-
-let SYSTEM = {
-    autoPilot: false,
-    isLocked: false,
-    nonce: null,
-    riskProfile: 'MEDIUM',
-    strategyMode: 'DAY',
-    tradeAmount: "0.00002",
-    get slippage() { return RISK_PROFILES[this.riskProfile].slippage; },
-    get stopLoss() { return RISK_PROFILES[this.riskProfile].stopLoss; },
-    get gasMultiplier() { return RISK_PROFILES[this.riskProfile].gasMultiplier; },
-    get trailingStopPercent() { return STRATEGY_MODES[this.strategyMode].trail; },
-    minGasBuffer: ethers.parseEther("0.00002"),
-    activePosition: null,
-    pendingTarget: null,
-    lastTradedToken: null // HISTORY TRACKER
-};
-
-// ==========================================
-//  TITAN EXECUTION ENGINE (Saturation + Flashbots)
+//  NUCLEAR EXECUTION ENGINE
 // ==========================================
 
 async function forceConfirm(chatId, type, tokenName, txBuilder) {
@@ -174,63 +169,62 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
     let attempt = 1;
     SYSTEM.nonce = await provider.getTransactionCount(wallet.address, "latest");
 
-    // TITAN STRATEGY: MULTI-VECTOR BROADCAST
-    const broadcast = async (bribe) => {
-        const fee = await provider.getFeeData();
-        const maxFee = (fee.maxFeePerGas || fee.gasPrice) + bribe;
+    // NUCLEAR BROADCAST: Max Bribe + Multi-Block
+    const broadcast = async (bribeMultiplier) => {
+        const feeData = await provider.getFeeData();
+        
+        // AGGRESSIVE GAS CALCULATION
+        // If we are in DEGEN/NUCLEAR mode, we take the network max and TRIPLE it.
+        // This is how you win the block.
+        const baseFee = feeData.maxFeePerGas || feeData.gasPrice;
+        const priorityFee = feeData.maxPriorityFeePerGas || ethers.parseUnits("3", "gwei");
+        
+        const aggressivePriority = (priorityFee * bribeMultiplier) / 100n;
+        const aggressiveMaxFee = baseFee + aggressivePriority;
 
-        // 1. Build & Sign
-        const txReq = await txBuilder(bribe, maxFee, SYSTEM.nonce);
+        const txReq = await txBuilder(aggressivePriority, aggressiveMaxFee, SYSTEM.nonce);
         const signedTx = await wallet.signTransaction(txReq);
 
-        // 2. FLASHBOTS ROUTE (Private Miner Access)
+        // 1. FLASHBOTS MULTI-BLOCK TARGETING
+        // We target Current+1 AND Current+2 to ensure we don't miss the train if the block flips fast.
         if (flashbotsProvider) {
             try {
                 const blockNumber = await provider.getBlockNumber();
-                const targetBlock = blockNumber + 1;
                 const bundle = [{ signedTransaction: signedTx }];
                 
-                // Simulate first to avoid reverting on-chain
-                const simulation = await flashbotsProvider.simulate(bundle, targetBlock);
-                if (!simulation.error) {
-                    await flashbotsProvider.sendBundle(bundle, targetBlock);
-                    console.log(`[TITAN] ⚡ Flashbots Bundle Dispatched -> Block ${targetBlock}`.gold);
-                } else {
-                    console.log(`[TITAN] Flashbots Sim Failed: ${JSON.stringify(simulation.error)}`.gray);
-                }
-            } catch (e) { console.log(`[TITAN] Flashbots Skip: ${e.message}`.gray); }
+                // Target Next Block
+                await flashbotsProvider.sendBundle(bundle, blockNumber + 1);
+                console.log(`[NUCLEAR] ☢️ Flashbots Bundle -> Block ${blockNumber + 1}`.magenta);
+                
+                // Target Block After Next (Insurance)
+                await flashbotsProvider.sendBundle(bundle, blockNumber + 2);
+                console.log(`[NUCLEAR] ☢️ Flashbots Bundle -> Block ${blockNumber + 2} (Backup)`.magenta);
+            } catch (e) { console.log(`[NUCLEAR] Flashbots Skip: ${e.message}`.gray); }
         }
 
-        // 3. SATURATION ROUTE (Direct RPC Blast)
-        // Blasts the raw tx to all RPCs in the pool to find the fastest ingress
+        // 2. SATURATION BLAST (All RPCs)
         RPC_POOL.forEach(url => {
             axios.post(url, {
-                jsonrpc: "2.0",
-                id: 1,
-                method: "eth_sendRawTransaction",
-                params: [signedTx]
-            }).then(() => {
-                // console.log(`[TITAN] 🚀 Saturation Shot -> ${url}`.dim); // Verbose off
+                jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [signedTx]
             }).catch(() => {});
         });
 
-        // 4. STANDARD ROUTE (Fallback)
+        // 3. STANDARD BROADCAST
         return await provider.broadcastTransaction(signedTx);
     };
 
-    const baseFee = (await provider.getFeeData()).maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
-    const initialBribe = (baseFee * SYSTEM.gasMultiplier) / 100n;
+    // Initial aggression determined by Risk Profile
+    let currentMultiplier = SYSTEM.gasMultiplier;
 
-    bot.sendMessage(chatId, `📡 **${type} ${tokenName}:** Engaging TITAN Protocol (Flashbots + Saturation)...`);
+    bot.sendMessage(chatId, `☢️ **${type} ${tokenName}:** INITIATING NUCLEAR PROTOCOL (Multiplier: ${currentMultiplier}%)...`);
     
-    let tx = await broadcast(initialBribe);
-    let currentBribe = initialBribe;
+    let tx = await broadcast(currentMultiplier);
 
     while (true) {
         try {
             const receipt = await Promise.race([
                 tx.wait(1),
-                new Promise((_, reject) => setTimeout(() => reject(new Error("STALL")), 12000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error("STALL")), 4000)) // 4 Second Timeout (Aggressive)
             ]);
 
             if (receipt && receipt.status === 1n) {
@@ -238,9 +232,9 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
                 console.log(`[SUCCESS] ${type} Confirmed: ${receipt.hash}`.green);
                 
                 bot.sendMessage(chatId, `
-🟢 **CONFIRMED:** ${type} ${tokenName} Successful.
-🧊 **Block:** ${receipt.blockNumber}
-⚡ **Gas Used:** ${receipt.gasUsed}
+✅ **BLOCK WON:** ${type} ${tokenName}
+🧱 **Block:** ${receipt.blockNumber}
+⛽ **Gas Used:** ${receipt.gasUsed}
 🔗 [View on Etherscan](${link})`, { parse_mode: "Markdown", disable_web_page_preview: true });
                 
                 if (type === "SELL") {
@@ -252,13 +246,14 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
                 return receipt;
             }
         } catch (err) {
-            if (attempt < 5) {
+            if (attempt < 8) {
                 attempt++;
-                currentBribe = (currentBribe * 150n) / 100n; // Titan Aggressive Bump
-                bot.sendMessage(chatId, `⚠️ **STALL:** TITAN Boost -> ${ethers.formatUnits(currentBribe, 'gwei')} Gwei...`);
-                tx = await broadcast(currentBribe);
+                // ESCALATION: Increase bribe by 50% every 4 seconds
+                currentMultiplier = (currentMultiplier * 150n) / 100n; 
+                bot.sendMessage(chatId, `⚠️ **STALL:** ESCALATING BRIBE -> ${currentMultiplier}% Gas...`);
+                tx = await broadcast(currentMultiplier);
             } else {
-                bot.sendMessage(chatId, `❌ **ABORT:** ${type} Failed. Network too congested.`);
+                bot.sendMessage(chatId, `❌ **ABORT:** Transaction Failed. Network Unresponsive.`);
                 return null;
             }
         }
@@ -287,8 +282,6 @@ async function runProfitMonitor(chatId) {
 
         const dropFromPeak = ((highestPriceFloat - currentPriceFloat) / highestPriceFloat) * 100;
         const totalProfit = ((currentPriceFloat - parseFloat(ethers.formatEther(entryPrice))) / parseFloat(ethers.formatEther(entryPrice))) * 100;
-        
-        // Display Name check
         const displayName = name || symbol;
 
         if (dropFromPeak >= SYSTEM.trailingStopPercent && totalProfit > 1) {
@@ -296,10 +289,10 @@ async function runProfitMonitor(chatId) {
             PLAYER.totalProfitEth += profitEth;
 
             if (SYSTEM.autoPilot) {
-                bot.sendMessage(chatId, `📉 **PEAK REVERSAL:** ${displayName} dropped ${dropFromPeak.toFixed(2)}% from top. Securing ${totalProfit.toFixed(2)}% profit.`);
+                bot.sendMessage(chatId, `📉 **PEAK REVERSAL:** ${displayName} dropped ${dropFromPeak.toFixed(2)}%. Securing Profit.`);
                 await executeSell(chatId);
             } else {
-                bot.sendMessage(chatId, `📉 **PEAK DETECTED:** ${displayName} reversed from top!\n💰 **Profit:** ${totalProfit.toFixed(2)}%\nType \`/sell ${symbol}\` NOW.`);
+                bot.sendMessage(chatId, `📉 **PEAK DETECTED:** ${displayName} reversed! Profit: ${totalProfit.toFixed(2)}%. Type \`/sell\`.`);
             }
         }
         else if (totalProfit <= -(SYSTEM.stopLoss)) {
@@ -308,7 +301,6 @@ async function runProfitMonitor(chatId) {
                 await executeSell(chatId);
              }
         }
-
     } catch (e) { console.log(`[MONITOR] Tracking...`.gray); }
     finally {
         SYSTEM.isLocked = false;
@@ -324,15 +316,15 @@ async function executeSell(chatId) {
     const tokenContract = new Contract(address, ["function approve(address, uint) returns (bool)"], wallet);
     await (await tokenContract.approve(ROUTER_ADDR, amount)).wait();
 
-    const receipt = await forceConfirm(chatId, "SELL", displayName, async (bribe, maxFee, nonce) => {
+    const receipt = await forceConfirm(chatId, "SELL", displayName, async (priorityFee, maxFee, nonce) => {
         return await router.swapExactTokensForETH.populateTransaction(
             amount, 0n, [address, WETH], wallet.address, Math.floor(Date.now()/1000)+120,
-            { gasLimit: 450000, maxPriorityFeePerGas: bribe, maxFeePerGas: maxFee, nonce: nonce }
+            { gasLimit: 450000, maxPriorityFeePerGas: priorityFee, maxFeePerGas: maxFee, nonce: nonce }
         );
     });
 
     if (receipt) {
-        SYSTEM.lastTradedToken = address.toLowerCase(); // <--- SAVES THE SOLD TOKEN (Normalized)
+        SYSTEM.lastTradedToken = address.toLowerCase(); // SAVE SOLD TOKEN
         SYSTEM.activePosition = null;
         if (SYSTEM.autoPilot) {
             bot.sendMessage(chatId, "🔄 **ROTATION:** Sell complete. Hunting next BEST target...");
@@ -350,7 +342,6 @@ async function runScanner(chatId, isAuto = false) {
 
     try {
         updateQuest('sim', chatId);
-
         const bal = await provider.getBalance(wallet.address);
         if (bal < SYSTEM.minGasBuffer) {
             bot.sendMessage(chatId, `⛔ **HALT:** Low Balance (${ethers.formatEther(bal)} ETH).`);
@@ -358,9 +349,7 @@ async function runScanner(chatId, isAuto = false) {
             return;
         }
 
-        if (!isAuto || Math.random() > 0.7) {
-            bot.sendMessage(chatId, `🔎 **AI SCANNING:** Analyzing liquidity depth and volume...`);
-        }
+        if (!isAuto) bot.sendMessage(chatId, `🔎 **AI SCANNING:** Analyzing liquidity depth...`);
 
         // 1. GET BOOSTS
         const res = await axios.get('https://api.dexscreener.com/token-boosts/top/v1');
@@ -368,7 +357,6 @@ async function runScanner(chatId, isAuto = false) {
 
         if (boosted && boosted.length > 0) {
             // 2. SMART ROTATION LOGIC:
-            // This line iterates through the list and picks the FIRST token that is NOT the last traded one.
             let rawTarget = boosted.find(t => t.tokenAddress.toLowerCase() !== SYSTEM.lastTradedToken);
             
             if (rawTarget) {
@@ -396,17 +384,17 @@ async function runScanner(chatId, isAuto = false) {
 💎 **Token:** ${target.name} ($${target.symbol})
 🤖 **Confidence:** ${confidence}%
 💧 **Liquidity:** High
-⚡ **Action:** ${isAuto ? 'EXECUTING BUY...' : 'WAITING FOR APPROVAL'}
+⚡ **Action:** ${isAuto ? 'EXECUTING NUCLEAR BUY...' : 'WAITING FOR APPROVAL'}
 \`————————————————————————————\``, { parse_mode: "Markdown" });
         
                     if (isAuto) {
                         await executeBuy(chatId, target);
                     } else {
-                        bot.sendMessage(chatId, `👉 **ACTION:** Type \`/approve\` to execute immediately.`);
+                        bot.sendMessage(chatId, `👉 **ACTION:** Type \`/approve\` to execute.`);
                     }
                  }
             } else {
-                console.log("[SCAN] No valid non-duplicate targets found (All recent/filtered). Waiting...".gray);
+                console.log("[SCAN] No valid non-duplicate targets found. Waiting...".gray);
             }
         }
     } catch (e) { console.log(`[SCAN] Error fetching data`.red); }
@@ -416,10 +404,8 @@ async function runScanner(chatId, isAuto = false) {
 }
 
 async function executeBuy(chatId, target) {
-    // FINAL GUARD: Check if we are repeating the last trade manually or automatically
     if (SYSTEM.lastTradedToken && target.tokenAddress.toLowerCase() === SYSTEM.lastTradedToken) {
-        bot.sendMessage(chatId, `⚠️ **DUPLICATE BLOCKED:** Skipping ${target.symbol} (Recently Sold). Finding next best target...`);
-        // If auto, trigger scanner again to find the NEXT best one
+        bot.sendMessage(chatId, `⚠️ **DUPLICATE BLOCKED:** Skipping ${target.symbol}. Hunting next best...`);
         if (SYSTEM.autoPilot) runScanner(chatId, true);
         return;
     }
@@ -427,13 +413,12 @@ async function executeBuy(chatId, target) {
     const tradeValue = ethers.parseEther(SYSTEM.tradeAmount);
     const amounts = await router.getAmountsOut(tradeValue, [WETH, target.tokenAddress]);
     const minOut = (amounts[1] * BigInt(10000 - SYSTEM.slippage)) / 10000n;
-
     const displayName = target.name || target.symbol;
 
-    const receipt = await forceConfirm(chatId, "BUY", displayName, async (bribe, maxFee, nonce) => {
+    const receipt = await forceConfirm(chatId, "BUY", displayName, async (priorityFee, maxFee, nonce) => {
         return await router.swapExactETHForTokens.populateTransaction(
             minOut, [WETH, target.tokenAddress], wallet.address, Math.floor(Date.now()/1000)+120,
-            { value: tradeValue, gasLimit: 400000, maxPriorityFeePerGas: bribe, maxFeePerGas: maxFee, nonce: nonce, type: 2 }
+            { value: tradeValue, gasLimit: 400000, maxPriorityFeePerGas: priorityFee, maxFeePerGas: maxFee, nonce: nonce, type: 2 }
         );
     });
 
@@ -446,7 +431,7 @@ async function executeBuy(chatId, target) {
             amount: minOut,
             highestPriceSeen: tradeValue
         };
-        SYSTEM.pendingTarget = null; // Clear pending
+        SYSTEM.pendingTarget = null; 
         runProfitMonitor(chatId);
     }
 }
@@ -620,4 +605,4 @@ http.createServer((req, res) => res.end("V100000_APEX_ONLINE")).listen(8080).on(
     console.log("Port 8080 busy, likely another instance running. Please kill it.".red);
 });
 
-console.log("🦁 APEX TOTALITY v100005 ONLINE [TITAN ENGINE + VISUALS].".magenta);
+console.log("🦁 APEX TOTALITY v100006 ONLINE [NUCLEAR MODE + NO REPEATS].".magenta);
