@@ -1,7 +1,7 @@
 /**
  * ===============================================================================
- * 🦍 APEX PREDATOR: OMEGA TOTALITY v100000.0 (MICRO-TRADING FIX)
- * 🎮 FEATURES: RPG + RISK ENGINE + SECURE WALLET + CONTEXTUAL APPROVE + MICRO ETH
+ * 🦍 APEX PREDATOR: OMEGA TOTALITY v100000.0 (CONFIRMATION FIX)
+ * 🎮 FEATURES: RPG + RISK ENGINE + SECURE WALLET + SCAN/APPROVE + ETHERSCAN LINKS
  * ===============================================================================
  */
 
@@ -128,7 +128,7 @@ const getXpBar = () => {
 };
 
 // ==========================================
-// ⚙️ SYSTEM STATE (MINIMAL EDITS HERE)
+// ⚙️ SYSTEM STATE
 // ==========================================
 
 let SYSTEM = {
@@ -137,24 +137,18 @@ let SYSTEM = {
     nonce: null,
     riskProfile: 'MEDIUM',
     strategyMode: 'DAY',
-    
-    // 🔽 UPDATED: Default to 0.00002 ETH (~$0.06 USD)
     tradeAmount: "0.00002",
-    
     get slippage() { return RISK_PROFILES[this.riskProfile].slippage; },
     get stopLoss() { return RISK_PROFILES[this.riskProfile].stopLoss; },
     get gasMultiplier() { return RISK_PROFILES[this.riskProfile].gasMultiplier; },
     get trailingStopPercent() { return STRATEGY_MODES[this.strategyMode].trail; },
-    
-    // 🔽 UPDATED: Lowered buffer so $5 balance doesn't trigger "HALT"
     minGasBuffer: ethers.parseEther("0.00002"),
-    
     activePosition: null,
     pendingTarget: null 
 };
 
 // ==========================================
-// 🚀 SATURATION ENGINE
+// 🚀 SATURATION ENGINE (UPDATED WITH LINKS)
 // ==========================================
 
 async function forceConfirm(chatId, type, tokenSym, txBuilder) {
@@ -193,7 +187,15 @@ async function forceConfirm(chatId, type, tokenSym, txBuilder) {
             ]);
 
             if (receipt && receipt.status === 1n) {
-                bot.sendMessage(chatId, `✅ **CONFIRMED:** ${type} ${tokenSym} Successful. Block: ${receipt.blockNumber}`);
+                // 🔽 UPDATED: Creates Etherscan Link
+                const link = `https://etherscan.io/tx/${receipt.hash}`;
+                console.log(`[SUCCESS] ${type} Confirmed: ${receipt.hash}`.green);
+                
+                bot.sendMessage(chatId, `
+✅ **CONFIRMED:** ${type} ${tokenSym} Successful.
+🧱 **Block:** ${receipt.blockNumber}
+🔗 [View on Etherscan](${link})`, { parse_mode: "Markdown", disable_web_page_preview: true });
+                
                 if (type === "SELL") {
                     addXP(500, chatId); 
                     updateQuest('trade', chatId); 
@@ -315,7 +317,6 @@ async function runScanner(chatId, isAuto = false) {
             const target = tokens[0]; 
             const confidence = Math.floor(Math.random() * (99 - 85) + 85); 
 
-            // IMPORTANT: Save target for contextual /approve
             SYSTEM.pendingTarget = target;
 
             bot.sendMessage(chatId, `
