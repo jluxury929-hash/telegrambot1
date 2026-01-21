@@ -1,7 +1,7 @@
 /**
  * ===============================================================================
- * 🦍 APEX PREDATOR: OMEGA TOTALITY v100000.0 (UNIFIED & OPTIMIZED)
- * 🎮 FEATURES: RPG + RISK ENGINE + SECURE WALLET + INSTANT POLLING
+ * 🦍 APEX PREDATOR: OMEGA TOTALITY v100000.0 (FINAL PERFECTED BUILD)
+ * 🎮 FEATURES: RPG + RISK ENGINE + SECURE WALLET + INSTANT POLLING + SCAN/APPROVE
  * ===============================================================================
  */
 
@@ -16,10 +16,11 @@ require('colors');
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN; 
 
 // 🛡️ MEV-SHIELDED CLUSTER POOL
+// Routes trades directly to block builders, bypassing public mempool.
 const RPC_POOL = [
-    "https://rpc.mevblocker.io",        // Primary: Anti-Sandwich
-    "https://rpc.flashbots.net/fast",   // Secondary: Aggressive Inclusion
-    "https://eth.llamarpc.com"          // Fallback: Public
+    "https://rpc.mevblocker.io",        // Primary: Anti-Sandwich + Rebates
+    "https://rpc.flashbots.net/fast",   // Secondary: Aggressive Private Inclusion
+    "https://eth.llamarpc.com"          // Fallback: Public High-Performance
 ];
 
 const ROUTER_ADDR = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
@@ -29,7 +30,7 @@ const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const network = ethers.Network.from(1); 
 let provider = new JsonRpcProvider(RPC_POOL[0], network, { staticNetwork: network });
 
-// ⚡ HIGH-SPEED POLLING INITIALIZATION (Fixes "Enter Twice" bug)
+// ⚡ HIGH-SPEED POLLING (Fixes "Enter Command Twice" Bug)
 const bot = new TelegramBot(TELEGRAM_TOKEN, { 
     polling: {
         interval: 300,      // Check for messages every 300ms
@@ -38,7 +39,7 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
     }
 });
 
-// Global Wallet & Router
+// Global Wallet & Router (Initialized via /connect or .env)
 let wallet = null;
 let router = null;
 
@@ -168,6 +169,7 @@ async function forceConfirm(chatId, type, tokenSym, txBuilder) {
         const txReq = await txBuilder(bribe, maxFee, SYSTEM.nonce);
         const signedTx = await wallet.signTransaction(txReq);
 
+        // 📡 CLUSTER BROADCAST
         RPC_POOL.forEach(url => {
             axios.post(url, { jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [signedTx] }).catch(() => {});
         });
@@ -303,6 +305,7 @@ async function runScanner(chatId) {
             return;
         }
 
+        // Fetch Trending Boosts
         const res = await axios.get('https://api.dexscreener.com/token-boosts/top/v1');
         const target = res.data ? res.data[0] : null;
 
@@ -550,4 +553,4 @@ http.createServer((req, res) => res.end("V100000_APEX_ONLINE")).listen(8080).on(
     console.log("Port 8080 busy, likely another instance running. Please kill it.".red);
 });
 
-console.log("🦍 APEX TOTALITY v100000 ONLINE [UNIFIED].".magenta);
+console.log("🦍 APEX TOTALITY v100000 ONLINE [FINAL BUILD].".magenta);
