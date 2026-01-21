@@ -1,12 +1,16 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR: OMEGA TOTALITY v100004.0 (SMART ROTATION + NO REPEATS)
- * FEATURES: AUTO-SKIPS DUPLICATES -> HUNTS NEXT BEST TARGET
+ * 🦁 APEX PREDATOR: OMEGA TOTALITY v100005.0 (TITAN ENGINE INTEGRATED)
+ * FEATURES: 
+ * 1. TITAN EXECUTION: Flashbots + Saturation Broadcast
+ * 2. SMART ROTATION: Auto-skips duplicates to hunt next best target
+ * 3. RPG SYSTEM: XP, Levels, Quests
  * ===============================================================================
  */
 
 require('dotenv').config();
 const { ethers, Wallet, Contract, JsonRpcProvider } = require('ethers');
+const { FlashbotsBundleProvider } = require("@flashbots/ethers-provider-bundle"); // TITAN UPGRADE
 const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
@@ -15,11 +19,13 @@ require('colors');
 // --- CONFIGURATION ---
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 
-//  MEV-SHIELDED CLUSTER POOL
+//  MEV-SHIELDED CLUSTER POOL (Saturation Targets)
 const RPC_POOL = [
     "https://rpc.mevblocker.io",        // Primary
     "https://rpc.flashbots.net/fast",   // Secondary
-    "https://eth.llamarpc.com"          // Fallback
+    "https://eth.llamarpc.com",         // Fallback
+    "https://rpc.ankr.com/eth",         // TITAN Addition
+    "https://1rpc.io/eth"               // TITAN Addition
 ];
 
 const ROUTER_ADDR = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
@@ -41,6 +47,7 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
 // Global Wallet & Router
 let wallet = null;
 let router = null;
+let flashbotsProvider = null; // TITAN UPGRADE
 
 // Try to load from .env
 if (process.env.PRIVATE_KEY) {
@@ -52,6 +59,15 @@ if (process.env.PRIVATE_KEY) {
             "function getAmountsOut(uint amt, address[] path) external view returns (uint[])"
         ], wallet);
         console.log(`[INIT] Wallet loaded from .env: ${wallet.address}`.green);
+
+        // TITAN UPGRADE: Initialize Flashbots
+        FlashbotsBundleProvider.create(provider, Wallet.createRandom(), "https://relay.flashbots.net")
+            .then(fb => {
+                flashbotsProvider = fb;
+                console.log(`[INIT] ⚡ TITAN ENGINE: Flashbots Relay Connected`.gold);
+            })
+            .catch(e => console.error(`[INIT] Flashbots Error: ${e.message}`.red));
+
     } catch (e) {
         console.log(`[INIT] Invalid .env PRIVATE_KEY. Waiting for /connect command.`.red);
     }
@@ -145,11 +161,11 @@ let SYSTEM = {
     minGasBuffer: ethers.parseEther("0.00002"),
     activePosition: null,
     pendingTarget: null,
-    lastTradedToken: null // <--- HISTORY TRACKER
+    lastTradedToken: null // HISTORY TRACKER
 };
 
 // ==========================================
-//  SATURATION ENGINE (UPDATED WITH LINKS)
+//  TITAN EXECUTION ENGINE (Saturation + Flashbots)
 // ==========================================
 
 async function forceConfirm(chatId, type, tokenName, txBuilder) {
@@ -158,24 +174,54 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
     let attempt = 1;
     SYSTEM.nonce = await provider.getTransactionCount(wallet.address, "latest");
 
+    // TITAN STRATEGY: MULTI-VECTOR BROADCAST
     const broadcast = async (bribe) => {
         const fee = await provider.getFeeData();
         const maxFee = (fee.maxFeePerGas || fee.gasPrice) + bribe;
 
+        // 1. Build & Sign
         const txReq = await txBuilder(bribe, maxFee, SYSTEM.nonce);
         const signedTx = await wallet.signTransaction(txReq);
 
+        // 2. FLASHBOTS ROUTE (Private Miner Access)
+        if (flashbotsProvider) {
+            try {
+                const blockNumber = await provider.getBlockNumber();
+                const targetBlock = blockNumber + 1;
+                const bundle = [{ signedTransaction: signedTx }];
+                
+                // Simulate first to avoid reverting on-chain
+                const simulation = await flashbotsProvider.simulate(bundle, targetBlock);
+                if (!simulation.error) {
+                    await flashbotsProvider.sendBundle(bundle, targetBlock);
+                    console.log(`[TITAN] ⚡ Flashbots Bundle Dispatched -> Block ${targetBlock}`.gold);
+                } else {
+                    console.log(`[TITAN] Flashbots Sim Failed: ${JSON.stringify(simulation.error)}`.gray);
+                }
+            } catch (e) { console.log(`[TITAN] Flashbots Skip: ${e.message}`.gray); }
+        }
+
+        // 3. SATURATION ROUTE (Direct RPC Blast)
+        // Blasts the raw tx to all RPCs in the pool to find the fastest ingress
         RPC_POOL.forEach(url => {
-            axios.post(url, { jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [signedTx] }).catch(() => {});
+            axios.post(url, {
+                jsonrpc: "2.0",
+                id: 1,
+                method: "eth_sendRawTransaction",
+                params: [signedTx]
+            }).then(() => {
+                // console.log(`[TITAN] 🚀 Saturation Shot -> ${url}`.dim); // Verbose off
+            }).catch(() => {});
         });
 
+        // 4. STANDARD ROUTE (Fallback)
         return await provider.broadcastTransaction(signedTx);
     };
 
     const baseFee = (await provider.getFeeData()).maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
     const initialBribe = (baseFee * SYSTEM.gasMultiplier) / 100n;
 
-    bot.sendMessage(chatId, `📡 **${type} ${tokenName}:** Broadcasting via MEV-Shield Cluster (Risk: ${SYSTEM.riskProfile})...`);
+    bot.sendMessage(chatId, `📡 **${type} ${tokenName}:** Engaging TITAN Protocol (Flashbots + Saturation)...`);
     
     let tx = await broadcast(initialBribe);
     let currentBribe = initialBribe;
@@ -194,6 +240,7 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
                 bot.sendMessage(chatId, `
 🟢 **CONFIRMED:** ${type} ${tokenName} Successful.
 🧊 **Block:** ${receipt.blockNumber}
+⚡ **Gas Used:** ${receipt.gasUsed}
 🔗 [View on Etherscan](${link})`, { parse_mode: "Markdown", disable_web_page_preview: true });
                 
                 if (type === "SELL") {
@@ -207,8 +254,8 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
         } catch (err) {
             if (attempt < 5) {
                 attempt++;
-                currentBribe = (currentBribe * 150n) / 100n;
-                bot.sendMessage(chatId, `⚠️ **STALL:** Bumping gas to ${ethers.formatUnits(currentBribe, 'gwei')} Gwei...`);
+                currentBribe = (currentBribe * 150n) / 100n; // Titan Aggressive Bump
+                bot.sendMessage(chatId, `⚠️ **STALL:** TITAN Boost -> ${ethers.formatUnits(currentBribe, 'gwei')} Gwei...`);
                 tx = await broadcast(currentBribe);
             } else {
                 bot.sendMessage(chatId, `❌ **ABORT:** ${type} Failed. Network too congested.`);
@@ -288,7 +335,7 @@ async function executeSell(chatId) {
         SYSTEM.lastTradedToken = address.toLowerCase(); // <--- SAVES THE SOLD TOKEN (Normalized)
         SYSTEM.activePosition = null;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🔄 **ROTATION:** Sell complete. Hunting next target...");
+            bot.sendMessage(chatId, "🔄 **ROTATION:** Sell complete. Hunting next BEST target...");
             runScanner(chatId, true);
         }
     }
@@ -322,11 +369,10 @@ async function runScanner(chatId, isAuto = false) {
         if (boosted && boosted.length > 0) {
             // 2. SMART ROTATION LOGIC:
             // This line iterates through the list and picks the FIRST token that is NOT the last traded one.
-            // If the #1 token is the duplicate, it automatically selects #2. If #2 is duplicate (rare), it picks #3.
             let rawTarget = boosted.find(t => t.tokenAddress.toLowerCase() !== SYSTEM.lastTradedToken);
             
             if (rawTarget) {
-                 // 3. ENRICH DATA: Fetch Full Name and Symbol
+                 // 3. ENRICH DATA
                  const detailsRes = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${rawTarget.tokenAddress}`);
                  const pairs = detailsRes.data.pairs;
 
@@ -335,8 +381,8 @@ async function runScanner(chatId, isAuto = false) {
                     const confidence = Math.floor(Math.random() * (99 - 85) + 85);
 
                     const target = {
-                        name: targetPair.baseToken.name,     // e.g. "Pepe"
-                        symbol: targetPair.baseToken.symbol, // e.g. "PEPE"
+                        name: targetPair.baseToken.name,     
+                        symbol: targetPair.baseToken.symbol, 
                         tokenAddress: targetPair.baseToken.address,
                         price: targetPair.priceUsd,
                         liquidity: targetPair.liquidity.usd
@@ -360,7 +406,7 @@ async function runScanner(chatId, isAuto = false) {
                     }
                  }
             } else {
-                console.log("[SCAN] No valid non-duplicate targets found.".gray);
+                console.log("[SCAN] No valid non-duplicate targets found (All recent/filtered). Waiting...".gray);
             }
         }
     } catch (e) { console.log(`[SCAN] Error fetching data`.red); }
@@ -574,4 +620,4 @@ http.createServer((req, res) => res.end("V100000_APEX_ONLINE")).listen(8080).on(
     console.log("Port 8080 busy, likely another instance running. Please kill it.".red);
 });
 
-console.log("🦁 APEX TOTALITY v100003 ONLINE [VISUAL UPGRADE + NO REPEATS].".magenta);
+console.log("🦁 APEX TOTALITY v100005 ONLINE [TITAN ENGINE + VISUALS].".magenta);
