@@ -1,6 +1,6 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR: OMEGA TOTALITY v100003.0 (SMART ROTATION + NO REPEATS)
+ * 🦁 APEX PREDATOR: OMEGA TOTALITY v100004.0 (SMART ROTATION + NO REPEATS)
  * FEATURES: AUTO-SKIPS DUPLICATES -> HUNTS NEXT BEST TARGET
  * ===============================================================================
  */
@@ -360,7 +360,7 @@ async function runScanner(chatId, isAuto = false) {
                     }
                  }
             } else {
-                console.log("[SCAN] No valid targets found (All recent/filtered). Waiting...".gray);
+                console.log("[SCAN] No valid non-duplicate targets found.".gray);
             }
         }
     } catch (e) { console.log(`[SCAN] Error fetching data`.red); }
