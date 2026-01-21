@@ -1,7 +1,7 @@
 /**
  * ===============================================================================
- * 🦍 APEX PREDATOR: OMEGA RPG v200000.1 (COOLDOWN LOGIC ADDED)
- * 🎮 FEATURES: FULL RPG SYSTEM + TRADING ENGINE + REAL NAMES + LOOP PROTECTION
+ * 🦍 APEX PREDATOR: OMEGA RPG v200000.1 (LOOP FIX + RPG + NAMES)
+ * 🎮 FEATURES: FULL RPG SYSTEM + TRADING ENGINE + REAL NAMES + COOLDOWN
  * ===============================================================================
  */
 
@@ -41,7 +41,6 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
 // Global Wallet & Router
 let wallet = null;
 let router = null;
-let LAST_TRADED_TOKEN = null; // <--- NEW: Prevents loop trading
 
 // Try to load from .env
 if (process.env.PRIVATE_KEY) {
@@ -59,7 +58,7 @@ if (process.env.PRIVATE_KEY) {
 }
 
 // ==========================================
-// ⚙️ ADVANCED CONFIGURATION
+// ⚙️ SYSTEM STATE (TRADING)
 // ==========================================
 
 const RISK_PROFILES = {
@@ -75,8 +74,27 @@ const STRATEGY_MODES = {
     MOON:   { trail: 30, label: "🚀 MOON (Sell on 30% dip)" }  
 };
 
+let SYSTEM = {
+    autoPilot: false,
+    isLocked: false,
+    nonce: null,
+    riskProfile: 'MEDIUM',
+    strategyMode: 'DAY',
+    tradeAmount: "0.0036", 
+    minGasBuffer: ethers.parseEther("0.0036"),
+    
+    get slippage() { return RISK_PROFILES[this.riskProfile].slippage; },
+    get stopLoss() { return RISK_PROFILES[this.riskProfile].stopLoss; },
+    get gasMultiplier() { return RISK_PROFILES[this.riskProfile].gasMultiplier; },
+    get trailingStopPercent() { return STRATEGY_MODES[this.strategyMode].trail; },
+    
+    activePosition: null,
+    pendingTarget: null,
+    lastTradedToken: null // <--- NEW: Stores the last sold token address
+};
+
 // ==========================================
-// 🎮 RPG STATE
+// 🎮 RPG GAME STATE
 // ==========================================
 
 let PLAYER = {
@@ -86,13 +104,14 @@ let PLAYER = {
     class: "HUNTING CUB",
     dailyQuests: [
         { id: 'sim', task: "Run 3 Simulations", count: 0, target: 3, done: false, xp: 150 },
-        { id: 'trade', task: "Protect 0.05 ETH MEV", count: 0, target: 1, done: false, xp: 500 }
+        { id: 'trade', task: "Execute Shielded Protocol", count: 0, target: 1, done: false, xp: 500 }
     ],
     inventory: ["MEV Shield v1", "Gas Goggles"],
     streak: 5,
     totalProfitEth: 0.0
 };
 
+// RPG Logic Helpers
 const getXpBar = () => {
     const progress = Math.min(Math.round((PLAYER.xp / PLAYER.nextLevelXp) * 10), 10);
     return "🟩".repeat(progress) + "⬜".repeat(10 - progress);
@@ -127,27 +146,6 @@ const updateQuest = (type, chatId) => {
             }
         }
     });
-};
-
-// ==========================================
-// ⚙️ SYSTEM STATE
-// ==========================================
-
-let SYSTEM = {
-    autoPilot: false,
-    isLocked: false,
-    nonce: null,
-    riskProfile: 'MEDIUM',
-    strategyMode: 'DAY',
-    tradeAmount: "0.0036", 
-    minGasBuffer: ethers.parseEther("0.0036"),
-    
-    get slippage() { return RISK_PROFILES[this.riskProfile].slippage; },
-    get stopLoss() { return RISK_PROFILES[this.riskProfile].stopLoss; },
-    get gasMultiplier() { return RISK_PROFILES[this.riskProfile].gasMultiplier; },
-    get trailingStopPercent() { return STRATEGY_MODES[this.strategyMode].trail; },
-    activePosition: null,
-    pendingTarget: null
 };
 
 // ==========================================
@@ -216,6 +214,10 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
     }
 }
 
+// ==========================================
+// 📉 MONITOR & SELL
+// ==========================================
+
 async function runProfitMonitor(chatId) {
     if (!SYSTEM.activePosition || SYSTEM.isLocked || !wallet) return;
     SYSTEM.isLocked = true;
@@ -234,7 +236,8 @@ async function runProfitMonitor(chatId) {
 
         const dropFromPeak = ((highestPriceFloat - currentPriceFloat) / highestPriceFloat) * 100;
         const totalProfit = ((currentPriceFloat - parseFloat(ethers.formatEther(entryPrice))) / parseFloat(ethers.formatEther(entryPrice))) * 100;
-        
+
+        // Display Name check
         const displayName = name || symbol;
 
         if (dropFromPeak >= SYSTEM.trailingStopPercent && totalProfit > 1) {
@@ -254,7 +257,6 @@ async function runProfitMonitor(chatId) {
                 await executeSell(chatId);
              }
         }
-
     } catch (e) { console.log(`[MONITOR] Tracking...`.gray); }
     finally {
         SYSTEM.isLocked = false;
@@ -278,7 +280,7 @@ async function executeSell(chatId) {
     });
 
     if (receipt) {
-        LAST_TRADED_TOKEN = address; // <--- NEW: Set Cooldown
+        SYSTEM.lastTradedToken = address; // <--- NEW: Sets the Cooldown
         SYSTEM.activePosition = null;
         if (SYSTEM.autoPilot) {
             bot.sendMessage(chatId, "♻️ **ROTATION:** Sell complete. Scanning...");
@@ -288,14 +290,14 @@ async function executeSell(chatId) {
 }
 
 // ==========================================
-// 🧠 AI SCANNER (WITH COOLDOWN)
+// 🧠 AI SCANNER (WITH NAME FIX + COOLDOWN)
 // ==========================================
 
 async function runScanner(chatId, isAuto = false) {
     if (SYSTEM.activePosition || !wallet) return;
 
     try {
-        updateQuest('sim', chatId);
+        updateQuest('sim', chatId); // RPG Hook
 
         const bal = await provider.getBalance(wallet.address);
         if (bal < SYSTEM.minGasBuffer) {
@@ -306,31 +308,32 @@ async function runScanner(chatId, isAuto = false) {
 
         if (!isAuto) bot.sendMessage(chatId, `🤖 **AI SCANNING:** Analyzing liquidity depth...`);
 
+        // 1. GET BOOSTS
         const boostRes = await axios.get('https://api.dexscreener.com/token-boosts/top/v1');
         const boosted = boostRes.data;
 
         if (boosted && boosted.length > 0) {
-            const rawTarget = boosted[0];
-            
-            // 2. FETCH REAL DETAILS
+            // 2. ENRICH DATA (THE FIX) - Fetch Full details to get NAME and SYMBOL
+            const rawTarget = boosted[0]; 
             const detailsRes = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${rawTarget.tokenAddress}`);
             const pairs = detailsRes.data.pairs;
 
             if (pairs && pairs.length > 0) {
                 const targetPair = pairs[0];
-                const confidence = Math.floor(Math.random() * (99 - 85) + 85);
+                const confidence = Math.floor(Math.random() * (99 - 85) + 85); 
 
+                // Capture Name and Symbol reliably here
                 const target = {
-                    name: targetPair.baseToken.name,
-                    symbol: targetPair.baseToken.symbol,
+                    name: targetPair.baseToken.name,     // e.g. "Pepe"
+                    symbol: targetPair.baseToken.symbol, // e.g. "PEPE"
                     tokenAddress: targetPair.baseToken.address,
                     price: targetPair.priceUsd,
                     liquidity: targetPair.liquidity.usd
                 };
 
                 // <--- NEW: COOLDOWN CHECK
-                if (target.tokenAddress === LAST_TRADED_TOKEN) {
-                    console.log(`[SCAN] Skipping recently traded token: ${target.symbol}`.gray);
+                if (target.tokenAddress === SYSTEM.lastTradedToken) {
+                    console.log(`[SCAN] Skipping recently traded token: ${target.name}`.gray);
                     return; 
                 }
 
@@ -351,7 +354,7 @@ async function runScanner(chatId, isAuto = false) {
                 }
             }
         }
-    } catch (e) { console.log(`[SCAN] Data Fetch Error`.red); }
+    } catch (e) { console.log(`[SCAN] Data Fetch Error: ${e.message}`.red); }
     finally {
         if (SYSTEM.autoPilot && !SYSTEM.activePosition) setTimeout(() => runScanner(chatId, true), 5000);
     }
@@ -362,6 +365,7 @@ async function executeBuy(chatId, target) {
     const amounts = await router.getAmountsOut(tradeValue, [WETH, target.tokenAddress]);
     const minOut = (amounts[1] * BigInt(10000 - SYSTEM.slippage)) / 10000n;
     
+    // Use the fetched Name for the alert
     const displayName = target.name || target.symbol;
 
     const receipt = await forceConfirm(chatId, "BUY", displayName, async (bribe, maxFee, nonce) => {
@@ -386,12 +390,13 @@ async function executeBuy(chatId, target) {
 }
 
 // ==========================================
-// 🕹️ COMMANDS
+// 🕹️ COMMANDS (RPG + TRADING)
 // ==========================================
 
 bot.on('message', (msg) => { if (msg.text && msg.text.startsWith('/')) console.log(`[CMD] ${msg.text}`.cyan); });
 
 // --- RPG COMMANDS ---
+
 bot.onText(/\/profile/, (msg) => {
     bot.sendMessage(msg.chat.id, `
 👤 **OPERATOR PROFILE: ${msg.from.first_name}**
@@ -414,7 +419,7 @@ bot.onText(/\/quests/, (msg) => {
 \`————————————————————————————\`
 ${questList}
 
-🎁 **Reward:** \`+250 XP & 0.1x Gas Discount\`
+🎁 **Reward for all:** \`+250 XP & 0.1x Gas Discount\`
 \`————————————————————————————\``, { parse_mode: "Markdown" });
 });
 
@@ -453,9 +458,11 @@ bot.onText(/\/approve(?:\s+(.+))?/i, async (msg, match) => {
     if (!wallet) return bot.sendMessage(msg.chat.id, "⚠️ **NO WALLET**");
     let target = null;
     if (match[1]) {
+        bot.sendMessage(msg.chat.id, `⚡ **MANUAL:** ${match[1]}`);
         target = { tokenAddress: match[1], symbol: "MANUAL", name: "Manual Token" };
     } else if (SYSTEM.pendingTarget) {
         target = SYSTEM.pendingTarget;
+        bot.sendMessage(msg.chat.id, `✅ **APPROVED:** Buying ${target.name}...`);
     } else {
         return bot.sendMessage(msg.chat.id, "⚠️ **NO TARGET:** Use /scan first.");
     }
@@ -467,14 +474,16 @@ bot.onText(/\/start/i, (msg) => {
 🦍 **APEX TOTALITY: THE GREAT HUNT** \`————————————————————————————\`
 **Welcome to the Arena, Operator.**
 
-**/profile** - Check Level & Rank
-**/quests** - Daily Missions
-**/connect** - Link Wallet
-**/scan** - Find Targets
-**/auto** - Autopilot
+**/profile** - Check your Level, XP, and Rank.
+**/quests** - View daily missions for rewards.
+**/connect** - Link your Wallet.
+**/scan** - Find Targets.
+**/auto** - Toggle Autopilot.
 
 **Current Difficulty:** \`${SYSTEM.riskProfile}\`
-**Mode:** \`${SYSTEM.strategyMode}\`
+**Mission Horizon:** \`${SYSTEM.strategyMode}\`
+
+*Gear up. The next block is yours.*
 \`————————————————————————————\``, { parse_mode: "Markdown" });
 });
 
@@ -487,7 +496,7 @@ bot.onText(/\/status/i, async (msg) => {
 💰 **Bal:** ${ethers.formatEther(bal)} ETH
 🤖 **Mode:** ${SYSTEM.autoPilot ? 'AUTO' : 'MANUAL'}
 💼 **Bag:** ${bagName}
-📈 **Profit:** ${PLAYER.totalProfitEth.toFixed(4)} ETH
+📈 **Total Profit:** ${PLAYER.totalProfitEth.toFixed(4)} ETH
 `, { parse_mode: "Markdown" });
 });
 
@@ -516,4 +525,4 @@ bot.onText(/\/risk\s+(.+)/i, (msg, match) => {
 });
 
 http.createServer((req, res) => res.end("ONLINE")).listen(8080);
-console.log("🦍 APEX TOTALITY v200000 ONLINE [RPG MERGED + NAMES FIXED + COOLDOWN].".magenta);
+console.log("🦍 APEX TOTALITY v200000 ONLINE [RPG MERGED + NAMES FIXED].".magenta);
