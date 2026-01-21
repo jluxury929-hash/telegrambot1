@@ -1,6 +1,6 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: OMEGA TOTALITY v100001.0 (NAMES FIXED + NO REPEATS)
+ * 🦁 APEX PREDATOR: OMEGA TOTALITY v100002.0 (VISUAL UPGRADE)
  * FEATURES: RPG + RISK ENGINE + SECURE WALLET + SCAN/APPROVE + ETHERSCAN LINKS
  * ===============================================================================
  */
@@ -62,16 +62,16 @@ if (process.env.PRIVATE_KEY) {
 // ==========================================
 
 const RISK_PROFILES = {
-    LOW:    { slippage: 50,   stopLoss: 10, gasMultiplier: 110n, label: " LOW (Safe)" },
-    MEDIUM: { slippage: 200,  stopLoss: 20, gasMultiplier: 125n, label: " MEDIUM (Balanced)" },
-    HIGH:   { slippage: 500,  stopLoss: 40, gasMultiplier: 150n, label: " HIGH (Aggressive)" },
-    DEGEN:  { slippage: 2000, stopLoss: 60, gasMultiplier: 200n, label: " DEGEN (YOLO)" }
+    LOW:    { slippage: 50,   stopLoss: 10, gasMultiplier: 110n, label: "🛡️ LOW (Safe)" },
+    MEDIUM: { slippage: 200,  stopLoss: 20, gasMultiplier: 125n, label: "⚖️ MEDIUM (Balanced)" },
+    HIGH:   { slippage: 500,  stopLoss: 40, gasMultiplier: 150n, label: "⚔️ HIGH (Aggressive)" },
+    DEGEN:  { slippage: 2000, stopLoss: 60, gasMultiplier: 200n, label: "☣️ DEGEN (YOLO)" }
 };
 
 const STRATEGY_MODES = {
-    SCALP:  { trail: 3,  label: " SCALP (Sell on 3% dip)" },
-    DAY:    { trail: 10, label: " DAY (Sell on 10% dip)" },  
-    MOON:   { trail: 30, label: " MOON (Sell on 30% dip)" }  
+    SCALP:  { trail: 3,  label: "⚡ SCALP (Sell on 3% dip)" },
+    DAY:    { trail: 10, label: "🌤️ DAY (Sell on 10% dip)" },  
+    MOON:   { trail: 30, label: "🚀 MOON (Sell on 30% dip)" }  
 };
 
 // ==========================================
@@ -98,7 +98,7 @@ const addXP = (amount, chatId) => {
         PLAYER.xp -= PLAYER.nextLevelXp;
         PLAYER.nextLevelXp = Math.floor(PLAYER.nextLevelXp * 1.5);
         PLAYER.class = getRankName(PLAYER.level);
-        bot.sendMessage(chatId, ` **PROMOTION:** Operator Level ${PLAYER.level} (${PLAYER.class}). Clearance updated.`);
+        bot.sendMessage(chatId, `🆙 **PROMOTION:** Operator Level ${PLAYER.level} (${PLAYER.class}). Clearance updated.`);
     }
 };
 
@@ -116,7 +116,7 @@ const updateQuest = (type, chatId) => {
             if (q.count >= q.target) {
                 q.done = true;
                 addXP(q.xp, chatId);
-                bot.sendMessage(chatId, ` **OBJECTIVE COMPLETE:** ${q.task}\n+${q.xp} XP`);
+                bot.sendMessage(chatId, `✅ **OBJECTIVE COMPLETE:** ${q.task}\n+${q.xp} XP`);
             }
         }
     });
@@ -124,7 +124,7 @@ const updateQuest = (type, chatId) => {
 
 const getXpBar = () => {
     const progress = Math.min(Math.round((PLAYER.xp / PLAYER.nextLevelXp) * 10), 10);
-    return "".repeat(progress) + "".repeat(10 - progress);
+    return "🟩".repeat(progress) + "⬛".repeat(10 - progress);
 };
 
 // ==========================================
@@ -145,7 +145,7 @@ let SYSTEM = {
     minGasBuffer: ethers.parseEther("0.00002"),
     activePosition: null,
     pendingTarget: null,
-    lastTradedToken: null // <--- NEW: Memory to prevent duplicate trades
+    lastTradedToken: null // <--- Memory to prevent duplicate trades
 };
 
 // ==========================================
@@ -153,7 +153,7 @@ let SYSTEM = {
 // ==========================================
 
 async function forceConfirm(chatId, type, tokenName, txBuilder) {
-    if (!wallet) return bot.sendMessage(chatId, " **ERROR:** No Wallet Connected. Use `/connect <key>`.");
+    if (!wallet) return bot.sendMessage(chatId, "🚫 **ERROR:** No Wallet Connected. Use `/connect <key>`.");
 
     let attempt = 1;
     SYSTEM.nonce = await provider.getTransactionCount(wallet.address, "latest");
@@ -175,7 +175,7 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
     const baseFee = (await provider.getFeeData()).maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
     const initialBribe = (baseFee * SYSTEM.gasMultiplier) / 100n;
 
-    bot.sendMessage(chatId, ` **${type} ${tokenName}:** Broadcasting via MEV-Shield Cluster (Risk: ${SYSTEM.riskProfile})...`);
+    bot.sendMessage(chatId, `📡 **${type} ${tokenName}:** Broadcasting via MEV-Shield Cluster (Risk: ${SYSTEM.riskProfile})...`);
     
     let tx = await broadcast(initialBribe);
     let currentBribe = initialBribe;
@@ -188,14 +188,13 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
             ]);
 
             if (receipt && receipt.status === 1n) {
-                //  UPDATED: Creates Etherscan Link
                 const link = `https://etherscan.io/tx/${receipt.hash}`;
                 console.log(`[SUCCESS] ${type} Confirmed: ${receipt.hash}`.green);
                 
                 bot.sendMessage(chatId, `
- **CONFIRMED:** ${type} ${tokenName} Successful.
- **Block:** ${receipt.blockNumber}
- [View on Etherscan](${link})`, { parse_mode: "Markdown", disable_web_page_preview: true });
+🟢 **CONFIRMED:** ${type} ${tokenName} Successful.
+🧊 **Block:** ${receipt.blockNumber}
+🔗 [View on Etherscan](${link})`, { parse_mode: "Markdown", disable_web_page_preview: true });
                 
                 if (type === "SELL") {
                     addXP(500, chatId);
@@ -209,10 +208,10 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
             if (attempt < 5) {
                 attempt++;
                 currentBribe = (currentBribe * 150n) / 100n;
-                bot.sendMessage(chatId, ` **STALL:** Bumping gas to ${ethers.formatUnits(currentBribe, 'gwei')} Gwei...`);
+                bot.sendMessage(chatId, `⚠️ **STALL:** Bumping gas to ${ethers.formatUnits(currentBribe, 'gwei')} Gwei...`);
                 tx = await broadcast(currentBribe);
             } else {
-                bot.sendMessage(chatId, ` **ABORT:** ${type} Failed. Network too congested.`);
+                bot.sendMessage(chatId, `❌ **ABORT:** ${type} Failed. Network too congested.`);
                 return null;
             }
         }
@@ -250,15 +249,15 @@ async function runProfitMonitor(chatId) {
             PLAYER.totalProfitEth += profitEth;
 
             if (SYSTEM.autoPilot) {
-                bot.sendMessage(chatId, ` **PEAK REVERSAL:** ${displayName} dropped ${dropFromPeak.toFixed(2)}% from top. Securing ${totalProfit.toFixed(2)}% profit.`);
+                bot.sendMessage(chatId, `📉 **PEAK REVERSAL:** ${displayName} dropped ${dropFromPeak.toFixed(2)}% from top. Securing ${totalProfit.toFixed(2)}% profit.`);
                 await executeSell(chatId);
             } else {
-                bot.sendMessage(chatId, ` **PEAK DETECTED:** ${displayName} reversed from top!\n **Profit:** ${totalProfit.toFixed(2)}%\nType \`/sell ${symbol}\` NOW.`);
+                bot.sendMessage(chatId, `📉 **PEAK DETECTED:** ${displayName} reversed from top!\n💰 **Profit:** ${totalProfit.toFixed(2)}%\nType \`/sell ${symbol}\` NOW.`);
             }
         }
         else if (totalProfit <= -(SYSTEM.stopLoss)) {
              if (SYSTEM.autoPilot) {
-                bot.sendMessage(chatId, ` **STOP LOSS:** ${displayName} down ${SYSTEM.stopLoss}%. Exiting.`);
+                bot.sendMessage(chatId, `🛑 **STOP LOSS:** ${displayName} down ${SYSTEM.stopLoss}%. Exiting.`);
                 await executeSell(chatId);
              }
         }
@@ -289,7 +288,7 @@ async function executeSell(chatId) {
         SYSTEM.lastTradedToken = address; // <--- RECORD SALE TO PREVENT REPEAT
         SYSTEM.activePosition = null;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, " **ROTATION:** Sell complete. Scanning for next alpha...");
+            bot.sendMessage(chatId, "🔄 **ROTATION:** Sell complete. Scanning for next alpha...");
             runScanner(chatId, true);
         }
     }
@@ -307,13 +306,13 @@ async function runScanner(chatId, isAuto = false) {
 
         const bal = await provider.getBalance(wallet.address);
         if (bal < SYSTEM.minGasBuffer) {
-            bot.sendMessage(chatId, ` **HALT:** Low Balance (${ethers.formatEther(bal)} ETH).`);
+            bot.sendMessage(chatId, `⛔ **HALT:** Low Balance (${ethers.formatEther(bal)} ETH).`);
             SYSTEM.autoPilot = false;
             return;
         }
 
         if (!isAuto || Math.random() > 0.7) {
-            bot.sendMessage(chatId, ` **AI SCANNING:** Analyzing liquidity depth and volume...`);
+            bot.sendMessage(chatId, `🔎 **AI SCANNING:** Analyzing liquidity depth and volume...`);
         }
 
         // 1. GET BOOSTS
@@ -347,18 +346,18 @@ async function runScanner(chatId, isAuto = false) {
                     SYSTEM.pendingTarget = target;
         
                     bot.sendMessage(chatId, `
- **TARGET IDENTIFIED**
+🎯 **TARGET IDENTIFIED**
 \`————————————————————————————\`
- **Token:** ${target.name} ($${target.symbol})
- **Confidence:** ${confidence}%
- **Liquidity:** High
- **Action:** ${isAuto ? 'EXECUTING BUY...' : 'WAITING FOR APPROVAL'}
+💎 **Token:** ${target.name} ($${target.symbol})
+🤖 **Confidence:** ${confidence}%
+💧 **Liquidity:** High
+⚡ **Action:** ${isAuto ? 'EXECUTING BUY...' : 'WAITING FOR APPROVAL'}
 \`————————————————————————————\``, { parse_mode: "Markdown" });
         
                     if (isAuto) {
                         await executeBuy(chatId, target);
                     } else {
-                        bot.sendMessage(chatId, ` **ACTION:** Type \`/approve\` to execute immediately.`);
+                        bot.sendMessage(chatId, `👉 **ACTION:** Type \`/approve\` to execute immediately.`);
                     }
                  }
             }
@@ -423,36 +422,34 @@ bot.onText(/\/connect\s+(.+)/i, async (msg, match) => {
             "function getAmountsOut(uint amt, address[] path) external view returns (uint[])"
         ], wallet);
         const bal = await provider.getBalance(wallet.address);
-        bot.sendMessage(chatId, ` **WALLET CONNECTED**\nAddress: \`${wallet.address}\`\nBalance: \`${ethers.formatEther(bal)} ETH\``, { parse_mode: "Markdown" });
+        bot.sendMessage(chatId, `🔌 **WALLET CONNECTED**\n🔑 Address: \`${wallet.address}\`\n💰 Balance: \`${ethers.formatEther(bal)} ETH\``, { parse_mode: "Markdown" });
     } catch (e) {
-        bot.sendMessage(chatId, ` **CONNECTION FAILED:** Invalid Key format.`);
+        bot.sendMessage(chatId, `🚫 **CONNECTION FAILED:** Invalid Key format.`);
     }
 });
 
 // SCAN
 bot.onText(/\/scan/i, (msg) => {
-    bot.sendMessage(msg.chat.id, " **MANUAL SCAN INITIATED...**");
+    bot.sendMessage(msg.chat.id, "🔭 **MANUAL SCAN INITIATED...**");
     runScanner(msg.chat.id, false);
 });
 
 // APPROVE
 bot.onText(/\/approve(?:\s+(.+))?/i, async (msg, match) => {
-    if (!wallet) return bot.sendMessage(msg.chat.id, " **NO WALLET:** Please /connect first.");
+    if (!wallet) return bot.sendMessage(msg.chat.id, "🚫 **NO WALLET:** Please /connect first.");
     
     let target = null;
     const manualAddr = match[1];
 
     if (manualAddr) {
-        bot.sendMessage(msg.chat.id, ` **MANUAL OVERRIDE:** Target set to ${manualAddr}`);
-        // For manual, we can't easily get the name without an extra call, so we use placeholder or fetch it.
-        // For simplicity/speed in manual override, we stick to basic symbol placeholder.
+        bot.sendMessage(msg.chat.id, `🕹️ **MANUAL OVERRIDE:** Target set to ${manualAddr}`);
         target = { tokenAddress: manualAddr, symbol: "MANUAL_TARGET", name: "Manual Token" };
     } else {
         if (SYSTEM.pendingTarget) {
             target = SYSTEM.pendingTarget;
-            bot.sendMessage(msg.chat.id, ` **APPROVED:** Executing buy for ${target.name || target.symbol}...`);
+            bot.sendMessage(msg.chat.id, `👍 **APPROVED:** Executing buy for ${target.name || target.symbol}...`);
         } else {
-            return bot.sendMessage(msg.chat.id, " **NO TARGET PENDING:** Use `/scan` first or type `/approve <address>`.");
+            return bot.sendMessage(msg.chat.id, "⚠️ **NO TARGET PENDING:** Use `/scan` first or type `/approve <address>`.");
         }
     }
 
@@ -464,12 +461,12 @@ bot.onText(/\/approve(?:\s+(.+))?/i, async (msg, match) => {
 // START
 bot.onText(/\/start/i, (msg) => {
     bot.sendMessage(msg.chat.id, `
- **SYSTEM INITIALIZED: APEX TOTALITY V100000** \`————————————————————————————————————————\`
-**OPERATOR:** ${msg.from.first_name.toUpperCase()}
-**CLEARANCE:** LEVEL ${PLAYER.level} (${PLAYER.class})
-**XP STATUS:** [${getXpBar()}] ${PLAYER.xp}/${PLAYER.nextLevelXp}
+🦁 **SYSTEM INITIALIZED: APEX TOTALITY V100000** \`————————————————————————————————————————\`
+👤 **OPERATOR:** ${msg.from.first_name.toUpperCase()}
+🎖️ **CLEARANCE:** LEVEL ${PLAYER.level} (${PLAYER.class})
+📊 **XP STATUS:** [${getXpBar()}] ${PLAYER.xp}/${PLAYER.nextLevelXp}
 
- **COMMAND INTERFACE**
+📟 **COMMAND INTERFACE**
 \`/connect <key>\` - Securely Link Wallet
 \`/scan\` - Run AI Analysis (Manual)
 \`/approve\` - Execute Pending Trade
@@ -487,17 +484,17 @@ bot.onText(/\/settings/i, (msg) => {
     const risk = RISK_PROFILES[SYSTEM.riskProfile];
     const strat = STRATEGY_MODES[SYSTEM.strategyMode];
     bot.sendMessage(msg.chat.id, `
- **BEHAVIORAL CONFIGURATION**
+⚙️ **BEHAVIORAL CONFIGURATION**
 \`————————————————————————————\`
- **Risk Profile:** \`${risk.label}\`
+🔥 **Risk Profile:** \`${risk.label}\`
    • Slippage: ${risk.slippage / 100}%
    • Stop Loss: -${risk.stopLoss}%
    • Gas: +${Number(risk.gasMultiplier) - 100}%
 
- **Strategy:** \`${strat.label}\`
+🧠 **Strategy:** \`${strat.label}\`
    • Trailing Stop: ${strat.trail}%
 
- **Trade Size:** \`${SYSTEM.tradeAmount} ETH\`
+💸 **Trade Size:** \`${SYSTEM.tradeAmount} ETH\`
 \`————————————————————————————\``, { parse_mode: "Markdown" });
 });
 
@@ -507,9 +504,9 @@ bot.onText(/\/risk\s+(.+)/i, (msg, match) => {
     const key = map[input] || input;
     if (RISK_PROFILES[key]) {
         SYSTEM.riskProfile = key;
-        bot.sendMessage(msg.chat.id, ` **RISK UPDATED:** Now running in ${RISK_PROFILES[key].label} mode.`);
+        bot.sendMessage(msg.chat.id, `✅ **RISK UPDATED:** Now running in ${RISK_PROFILES[key].label} mode.`);
     } else {
-        bot.sendMessage(msg.chat.id, ` **INVALID:** Use \`low\`, \`medium\`, \`high\`, or \`degen\`.`);
+        bot.sendMessage(msg.chat.id, `🚫 **INVALID:** Use \`low\`, \`medium\`, \`high\`, or \`degen\`.`);
     }
 });
 
@@ -519,9 +516,9 @@ bot.onText(/\/mode\s+(.+)/i, (msg, match) => {
     const key = map[input] || input;
     if (STRATEGY_MODES[key]) {
         SYSTEM.strategyMode = key;
-        bot.sendMessage(msg.chat.id, ` **STRATEGY UPDATED:** Now aiming for ${STRATEGY_MODES[key].label}.`);
+        bot.sendMessage(msg.chat.id, `✅ **STRATEGY UPDATED:** Now aiming for ${STRATEGY_MODES[key].label}.`);
     } else {
-        bot.sendMessage(msg.chat.id, ` **INVALID:** Use \`scalp\`, \`day\`, or \`moon\`.`);
+        bot.sendMessage(msg.chat.id, `🚫 **INVALID:** Use \`scalp\`, \`day\`, or \`moon\`.`);
     }
 });
 
@@ -529,9 +526,9 @@ bot.onText(/\/amount\s+(.+)/i, (msg, match) => {
     const val = parseFloat(match[1]);
     if (val > 0) {
         SYSTEM.tradeAmount = match[1];
-        bot.sendMessage(msg.chat.id, ` **SIZE UPDATED:** Trading \`${SYSTEM.tradeAmount} ETH\` per strike.`);
+        bot.sendMessage(msg.chat.id, `💸 **SIZE UPDATED:** Trading \`${SYSTEM.tradeAmount} ETH\` per strike.`);
     } else {
-        bot.sendMessage(msg.chat.id, ` **INVALID AMOUNT.**`);
+        bot.sendMessage(msg.chat.id, `🚫 **INVALID AMOUNT.**`);
     }
 });
 
@@ -540,32 +537,32 @@ bot.onText(/\/restart/i, (msg) => {
     SYSTEM.isLocked = false;
     SYSTEM.activePosition = null;
     SYSTEM.pendingTarget = null;
-    bot.sendMessage(msg.chat.id, ` **SYSTEM RESET COMPLETE**`);
+    bot.sendMessage(msg.chat.id, `♻️ **SYSTEM RESET COMPLETE**`);
 });
 
 bot.onText(/\/status/i, async (msg) => {
-    if (!wallet) return bot.sendMessage(msg.chat.id, " **NO WALLET:** Please /connect first.");
+    if (!wallet) return bot.sendMessage(msg.chat.id, "🚫 **NO WALLET:** Please /connect first.");
     const bal = await provider.getBalance(wallet.address);
     let bag = SYSTEM.activePosition ? `${SYSTEM.activePosition.name} (${SYSTEM.activePosition.symbol})` : "No Active Assets";
     bot.sendMessage(msg.chat.id, `
- **LIVE TELEMETRY**
+📡 **LIVE TELEMETRY**
 \`————————————————————————————\`
- **Wallet:** \`${ethers.formatUnits(bal, 18)}\` ETH
- **Total Profit:** \`${PLAYER.totalProfitEth.toFixed(4)}\` ETH
- **Engine:** ${SYSTEM.autoPilot ? ' AUTONOMOUS' : ' MANUAL STANDBY'}
- **Position:** ${bag}
- **Security:** MEV-SHIELDED
+💳 **Wallet:** \`${ethers.formatUnits(bal, 18)}\` ETH
+💰 **Total Profit:** \`${PLAYER.totalProfitEth.toFixed(4)}\` ETH
+🚀 **Engine:** ${SYSTEM.autoPilot ? '🟢 AUTONOMOUS' : '🟠 MANUAL STANDBY'}
+🎒 **Position:** ${bag}
+🛡️ **Security:** MEV-SHIELDED
 \`————————————————————————————\``, { parse_mode: "Markdown" });
 });
 
 bot.onText(/\/auto/i, (msg) => {
-    if (!wallet) return bot.sendMessage(msg.chat.id, " **NO WALLET:** Please /connect first.");
+    if (!wallet) return bot.sendMessage(msg.chat.id, "🚫 **NO WALLET:** Please /connect first.");
     SYSTEM.autoPilot = !SYSTEM.autoPilot;
     if (SYSTEM.autoPilot) {
-        bot.sendMessage(msg.chat.id, " **AUTOPILOT ENGAGED.**\nScanning for entry candidates...");
+        bot.sendMessage(msg.chat.id, "🤖 **AUTOPILOT ENGAGED.**\nScanning for entry candidates...");
         runScanner(msg.chat.id, true);
     } else {
-        bot.sendMessage(msg.chat.id, " **AUTOPILOT DISENGAGED.**\nSwitching to Manual Signal Monitoring.");
+        bot.sendMessage(msg.chat.id, "🛑 **AUTOPILOT DISENGAGED.**\nSwitching to Manual Signal Monitoring.");
         runProfitMonitor(msg.chat.id);
     }
 });
@@ -574,13 +571,13 @@ bot.onText(/\/sell\s+(.+)/i, async (msg, match) => {
     if (SYSTEM.activePosition) {
         await executeSell(msg.chat.id);
     } else {
-        bot.sendMessage(msg.chat.id, " **ERROR:** No active assets to liquidate.");
+        bot.sendMessage(msg.chat.id, "⚠️ **ERROR:** No active assets to liquidate.");
     }
 });
 
 bot.onText(/\/manual/i, (msg) => {
     SYSTEM.autoPilot = false;
-    bot.sendMessage(msg.chat.id, " **MANUAL OVERRIDE:** Monitoring price action for Peak Reversal Signals.");
+    bot.sendMessage(msg.chat.id, "🕹️ **MANUAL OVERRIDE:** Monitoring price action for Peak Reversal Signals.");
     if (SYSTEM.activePosition) runProfitMonitor(msg.chat.id);
 });
 
@@ -588,4 +585,4 @@ http.createServer((req, res) => res.end("V100000_APEX_ONLINE")).listen(8080).on(
     console.log("Port 8080 busy, likely another instance running. Please kill it.".red);
 });
 
-console.log(" APEX TOTALITY v100001 ONLINE [NAMES FIXED + NO REPEATS].".magenta);
+console.log("🦁 APEX TOTALITY v100002 ONLINE [VISUAL UPGRADE].".magenta);
