@@ -1,7 +1,7 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR: OMEGA TOTALITY v100002.0 (VISUAL UPGRADE + NO REPEATS)
- * FEATURES: RPG + RISK ENGINE + SECURE WALLET + SCAN/APPROVE + ETHERSCAN LINKS
+ * 🦁 APEX PREDATOR: OMEGA TOTALITY v100003.0 (SMART ROTATION + NO REPEATS)
+ * FEATURES: AUTO-SKIPS DUPLICATES -> HUNTS NEXT BEST TARGET
  * ===============================================================================
  */
 
@@ -145,7 +145,7 @@ let SYSTEM = {
     minGasBuffer: ethers.parseEther("0.00002"),
     activePosition: null,
     pendingTarget: null,
-    lastTradedToken: null // <--- NEW: Memory to prevent duplicate trades
+    lastTradedToken: null // <--- HISTORY TRACKER
 };
 
 // ==========================================
@@ -188,7 +188,6 @@ async function forceConfirm(chatId, type, tokenName, txBuilder) {
             ]);
 
             if (receipt && receipt.status === 1n) {
-                //  UPDATED: Creates Etherscan Link
                 const link = `https://etherscan.io/tx/${receipt.hash}`;
                 console.log(`[SUCCESS] ${type} Confirmed: ${receipt.hash}`.green);
                 
@@ -286,17 +285,17 @@ async function executeSell(chatId) {
     });
 
     if (receipt) {
-        SYSTEM.lastTradedToken = address; // <--- RECORD SALE TO PREVENT REPEAT
+        SYSTEM.lastTradedToken = address; // <--- SAVES THE SOLD TOKEN
         SYSTEM.activePosition = null;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🔄 **ROTATION:** Sell complete. Scanning for next alpha...");
+            bot.sendMessage(chatId, "🔄 **ROTATION:** Sell complete. Hunting next target...");
             runScanner(chatId, true);
         }
     }
 }
 
 // ==========================================
-//  AI SCANNER & APPROVAL LOGIC
+//  AI SCANNER (SMART ROTATION)
 // ==========================================
 
 async function runScanner(chatId, isAuto = false) {
@@ -321,12 +320,11 @@ async function runScanner(chatId, isAuto = false) {
         const boosted = res.data;
 
         if (boosted && boosted.length > 0) {
-            // 2. DUPLICATE CHECK: Filter out the token we just sold
+            // 2. SMART ROTATION LOGIC:
+            // This line iterates through the list and picks the FIRST token that is NOT the last traded one.
+            // If the #1 token is the duplicate, it automatically selects #2. If #2 is duplicate (rare), it picks #3.
             let rawTarget = boosted.find(t => t.tokenAddress !== SYSTEM.lastTradedToken);
             
-            // Fallback if list is empty or only contains the last traded one
-            if (!rawTarget && boosted.length > 0) rawTarget = boosted[0];
-
             if (rawTarget) {
                  // 3. ENRICH DATA: Fetch Full Name and Symbol
                  const detailsRes = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${rawTarget.tokenAddress}`);
@@ -361,6 +359,8 @@ async function runScanner(chatId, isAuto = false) {
                         bot.sendMessage(chatId, `👉 **ACTION:** Type \`/approve\` to execute immediately.`);
                     }
                  }
+            } else {
+                console.log("[SCAN] No valid targets found (All recent/filtered). Waiting...".gray);
             }
         }
     } catch (e) { console.log(`[SCAN] Error fetching data`.red); }
@@ -374,7 +374,6 @@ async function executeBuy(chatId, target) {
     const amounts = await router.getAmountsOut(tradeValue, [WETH, target.tokenAddress]);
     const minOut = (amounts[1] * BigInt(10000 - SYSTEM.slippage)) / 10000n;
 
-    // Use name for alert
     const displayName = target.name || target.symbol;
 
     const receipt = await forceConfirm(chatId, "BUY", displayName, async (bribe, maxFee, nonce) => {
@@ -402,20 +401,13 @@ async function executeBuy(chatId, target) {
 //  COMMANDS & UI
 // ==========================================
 
-// DEBUG LOGGER
-bot.on('message', (msg) => {
-    if (msg.text && msg.text.startsWith('/')) {
-        console.log(`[CMD] Received: ${msg.text}`.cyan);
-    }
-});
+bot.on('message', (msg) => { if (msg.text && msg.text.startsWith('/')) console.log(`[CMD] Received: ${msg.text}`.cyan); });
 
-// CONNECT
 bot.onText(/\/connect\s+(.+)/i, async (msg, match) => {
     const chatId = msg.chat.id;
-    const pk = match[1];
     try { await bot.deleteMessage(chatId, msg.message_id); } catch (e) {}
     try {
-        const newWallet = new Wallet(pk, provider);
+        const newWallet = new Wallet(match[1], provider);
         wallet = newWallet;
         router = new Contract(ROUTER_ADDR, [
             "function swapExactETHForTokens(uint min, address[] path, address to, uint dead) external payable returns (uint[])",
@@ -429,19 +421,15 @@ bot.onText(/\/connect\s+(.+)/i, async (msg, match) => {
     }
 });
 
-// SCAN
 bot.onText(/\/scan/i, (msg) => {
     bot.sendMessage(msg.chat.id, "🔭 **MANUAL SCAN INITIATED...**");
     runScanner(msg.chat.id, false);
 });
 
-// APPROVE
 bot.onText(/\/approve(?:\s+(.+))?/i, async (msg, match) => {
     if (!wallet) return bot.sendMessage(msg.chat.id, "🚫 **NO WALLET:** Please /connect first.");
-    
     let target = null;
     const manualAddr = match[1];
-
     if (manualAddr) {
         bot.sendMessage(msg.chat.id, `🕹️ **MANUAL OVERRIDE:** Target set to ${manualAddr}`);
         target = { tokenAddress: manualAddr, symbol: "MANUAL_TARGET", name: "Manual Token" };
@@ -453,13 +441,9 @@ bot.onText(/\/approve(?:\s+(.+))?/i, async (msg, match) => {
             return bot.sendMessage(msg.chat.id, "⚠️ **NO TARGET PENDING:** Use `/scan` first or type `/approve <address>`.");
         }
     }
-
-    if (target) {
-        await executeBuy(msg.chat.id, target);
-    }
+    if (target) await executeBuy(msg.chat.id, target);
 });
 
-// START
 bot.onText(/\/start/i, (msg) => {
     bot.sendMessage(msg.chat.id, `
 🦁 **SYSTEM INITIALIZED: APEX TOTALITY V100000** \`————————————————————————————————————————\`
@@ -480,7 +464,6 @@ bot.onText(/\/start/i, (msg) => {
 \`————————————————————————————————————————\``, { parse_mode: "Markdown" });
 });
 
-// SETTINGS
 bot.onText(/\/settings/i, (msg) => {
     const risk = RISK_PROFILES[SYSTEM.riskProfile];
     const strat = STRATEGY_MODES[SYSTEM.strategyMode];
@@ -569,11 +552,8 @@ bot.onText(/\/auto/i, (msg) => {
 });
 
 bot.onText(/\/sell\s+(.+)/i, async (msg, match) => {
-    if (SYSTEM.activePosition) {
-        await executeSell(msg.chat.id);
-    } else {
-        bot.sendMessage(msg.chat.id, "⚠️ **ERROR:** No active assets to liquidate.");
-    }
+    if (SYSTEM.activePosition) await executeSell(msg.chat.id);
+    else bot.sendMessage(msg.chat.id, "⚠️ **ERROR:** No active assets to liquidate.");
 });
 
 bot.onText(/\/manual/i, (msg) => {
@@ -586,4 +566,4 @@ http.createServer((req, res) => res.end("V100000_APEX_ONLINE")).listen(8080).on(
     console.log("Port 8080 busy, likely another instance running. Please kill it.".red);
 });
 
-console.log("🦁 APEX TOTALITY v100002 ONLINE [VISUAL UPGRADE + NO REPEATS].".magenta);
+console.log("🦁 APEX TOTALITY v100003 ONLINE [VISUAL UPGRADE + NO REPEATS].".magenta);
