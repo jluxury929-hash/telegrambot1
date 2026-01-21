@@ -114,7 +114,7 @@ let PLAYER = {
 // RPG Logic Helpers
 const getXpBar = () => {
     const progress = Math.min(Math.round((PLAYER.xp / PLAYER.nextLevelXp) * 10), 10);
-    return "🟩".repeat(progress) + "⬜".repeat(10 - progress);
+    return "".repeat(progress) + "".repeat(10 - progress);
 };
 
 const getRankName = (lvl) => {
@@ -413,7 +413,7 @@ ${getXpBar()}
 });
 
 bot.onText(/\/quests/, (msg) => {
-    const questList = PLAYER.dailyQuests.map(q => `${q.done ? '✅' : '⬜'} ${q.task} (${q.count}/${q.target})`).join("\n");
+    const questList = PLAYER.dailyQuests.map(q => `${q.done ? '' : ''} ${q.task} (${q.count}/${q.target})`).join("\n");
     bot.sendMessage(msg.chat.id, `
  **DAILY BOUNTIES**
 \`————————————————————————————\`
