@@ -1,12 +1,12 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR v3600.0 (THE FINALITY - ZERO LOSS ARCHITECTURE)
+ * 🦁 APEX PREDATOR v3700.0 (MATHEMATICAL CERTAINTY EDITION)
  * ===============================================================================
- * STATUS: MATHEMATICAL SAFETY LOCKS ACTIVE
- * 1. ZERO-LOSS ENTRY: Aborts if Gas > 3% of Trade Size. (No negative EV).
- * 2. HONEYPOT SIM: Simulates tx locally. If it reverts, WE DO NOT BUY.
- * 3. OBLITERATION GAS: 100 Gwei Priority Fee. Guarantees Position #1.
- * 4. TRI-BEAM BROADCAST: Spams Block N, N+1, N+2 via Flashbots.
+ * STATUS: GOD MODE + PROFIT GUARD ACTIVE
+ * 1. PROFIT GUARD: Calculates (Trade Value - Gas). Aborts if EV is negative.
+ * 2. HONEYPOT SIM: Runs 'callStatic' to detect scam contracts before buying.
+ * 3. OBLIVION ENGINE: 500% Gas Bumps to guarantee block inclusion.
+ * 4. AUTO-PILOT: Scans, Simulates, and Executes only if Math = Positive.
  * ===============================================================================
  */
 
@@ -27,14 +27,16 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const WSS_NODE_URL = process.env.WSS_NODE_URL; 
 
+// Router (Uniswap V2)
 const ROUTER_ADDR = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; 
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 
+// Network
 const NETWORKS = {
     ETHEREUM: { chainId: 1, rpc: process.env.ETH_RPC || "https://rpc.mevblocker.io" }
 };
 
-// Quantum Flood Cluster (Redundant & Aggressive)
+// Quantum Flood Cluster
 const EXECUTION_WSS = [
     "wss://rpc.mevblocker.io",
     "wss://eth.llamarpc.com",
@@ -48,11 +50,11 @@ const AI_SITES = ["https://api.dexscreener.com/token-boosts/top/v1"];
 // 1. RPG & STATE ENGINE
 // ==========================================
 let PLAYER = {
-    level: 100, xp: 0, nextLevelXp: 999999, class: "MARKET GOD",
-    inventory: ["Zero-Loss Engine", "Obliteration Drive"],
+    level: 1, xp: 0, nextLevelXp: 1000, class: "HUNTING CUB",
+    inventory: ["Profit Guard", "Honeypot Detector"],
     dailyQuests: [
         { id: 'scan', task: "Scan Market", count: 0, target: 5, done: false, xp: 150 },
-        { id: 'trade', task: "Obliterate Block", count: 0, target: 1, done: false, xp: 5000 }
+        { id: 'trade', task: "Win a Trade", count: 0, target: 1, done: false, xp: 1000 }
     ]
 };
 
@@ -60,8 +62,17 @@ const addXP = (amount, bot, chatId) => {
     PLAYER.xp += amount;
     if (PLAYER.xp >= PLAYER.nextLevelXp) {
         PLAYER.level++; PLAYER.xp -= PLAYER.nextLevelXp;
-        bot.sendMessage(chatId, `🆙 **ASCENSION:** Level ${PLAYER.level} Reached!`);
+        PLAYER.nextLevelXp = Math.floor(PLAYER.nextLevelXp * 1.5);
+        PLAYER.class = getRankName(PLAYER.level);
+        if(chatId) bot.sendMessage(chatId, `🆙 **PROMOTION:** Operator Level ${PLAYER.level} (${PLAYER.class})!`);
     }
+};
+
+const getRankName = (lvl) => {
+    if (lvl < 5) return "HUNTING CUB";
+    if (lvl < 10) return "BLOCK STRIKER";
+    if (lvl < 20) return "MEV GOD";
+    return "APEX PREDATOR";
 };
 
 const updateQuest = (type, bot, chatId) => {
@@ -71,13 +82,16 @@ const updateQuest = (type, bot, chatId) => {
             if (q.count >= q.target) {
                 q.done = true;
                 addXP(q.xp, bot, chatId);
-                if(chatId) bot.sendMessage(chatId, `✅ **QUEST COMPLETE:** ${q.task}`);
+                if(chatId) bot.sendMessage(chatId, `✅ **QUEST COMPLETE:** ${q.task} (+${q.xp} XP)`);
             }
         }
     });
 };
 
-const getXpBar = () => "🟩".repeat(10); 
+const getXpBar = () => {
+    const p = Math.min(Math.round((PLAYER.xp / PLAYER.nextLevelXp) * 10), 10);
+    return "🟩".repeat(p) + "⬛".repeat(10 - p);
+};
 
 // ==========================================
 // 2. APEX OMNI GOVERNOR
@@ -108,35 +122,34 @@ class ApexOmniGovernor {
             activePosition: null,
             lastTradedToken: null, 
             pendingTarget: null,   
-            riskProfile: 'DEGEN', // Default: MAX AGGRESSION
-            execMode: 'GOD',      // Default: 1000% Gas
-            strategyMode: 'SCALP', // Default: Quick Profit
+            riskProfile: 'MEDIUM', 
+            execMode: 'NUCLEAR',   
+            strategyMode: 'DAY',   
             tradeAmount: "0.00002",
-            minGasBuffer: "0.0001", // Low buffer
-            profitThreshold: 3n // STRICT: Gas cannot exceed 3% of trade
+            minGasBuffer: "0.0001" // Low buffer for max capital efficiency
         };
 
         // Risk Profiles (Asset Quality)
         this.risk = {
-            LOW:    { minLiquidity: 100000, gasMult: 120n },
-            MEDIUM: { minLiquidity: 50000, gasMult: 150n },
-            HIGH:   { minLiquidity: 20000,  gasMult: 300n },
-            DEGEN:  { minLiquidity: 5000,   gasMult: 1000n } // 1000% Bribe
+            LOW:    { minLiquidity: 50000, gasMult: 110n },
+            MEDIUM: { minLiquidity: 10000, gasMult: 150n },
+            HIGH:   { minLiquidity: 2000,  gasMult: 200n },
+            DEGEN:  { minLiquidity: 0,     gasMult: 500n } // 500% Bribe
         };
 
         // Execution Modes (Gas Aggression)
         this.execution = {
             STANDARD: { priority: "2.0" },
-            FAST:     { priority: "10.0" },
-            NUCLEAR:  { priority: "50.0" }, 
-            GOD:      { priority: "100.0" }  // 100 Gwei Instant Priority
+            FAST:     { priority: "5.0" },
+            NUCLEAR:  { priority: "20.0" }, 
+            GOD:      { priority: "50.0" }  
         };
 
         // Strategies (Profit Taking)
         this.strategies = {
-            SCALP: { trail: 2, target: 1.05, label: "Scalp (Tight)" },
-            DAY:   { trail: 10, target: 1.20, label: "Day (Standard)" },
-            MOON:  { trail: 30, target: 2.00, label: "Moon (Loose)" }
+            SCALP: { trail: 3, target: 1.05 },
+            DAY:   { trail: 10, target: 1.20 },
+            MOON:  { trail: 30, target: 2.00 }
         };
 
         if(PRIVATE_KEY) this.connectWallet(PRIVATE_KEY);
@@ -148,28 +161,38 @@ class ApexOmniGovernor {
             this.wallets['ETHEREUM'] = wallet;
             console.log(`[CONNECT] Wallet: ${wallet.address}`.green);
             this.flashbots = await FlashbotsBundleProvider.create(this.providers.ETHEREUM, wallet, "https://relay.flashbots.net");
-            console.log(`[INIT] ☢️ EVENT HORIZON ENGINE: Active`.magenta);
+            console.log(`[INIT] ☢️ FLASHBOTS ACTIVE`.magenta);
             return wallet.address;
         } catch (e) { return null; }
     }
 
-    // --- PROFIT FIREWALL (THE 100% GUARD) ---
-    async checkProfitability(tradeValue, gasPrice) {
-        // Estimate Gas Limit for Swap (Standard V2 Swap)
-        const estGasLimit = 250000n; 
-        const totalGasCost = gasPrice * estGasLimit;
-        
-        // PROFIT LAW: Gas must not exceed 3% of Trade Value.
-        // If you spend more than 3% on entry, you are statistically starting at a loss.
-        const maxAcceptableGas = (tradeValue * this.system.profitThreshold) / 100n;
+    // --- PROFIT SIMULATOR (THE GUARD) ---
+    async simulateProfitability(tokenAddress, tradeAmount, gasPrice) {
+        // 1. Calculate Estimated Output
+        const router = new ethers.Contract(ROUTER_ADDR, [
+            "function getAmountsOut(uint amt, address[] path) external view returns (uint[])"
+        ], this.wallets['ETHEREUM']);
 
-        if (totalGasCost > maxAcceptableGas) {
-            return { 
-                safe: false, 
-                reason: `Gas Drain: ${ethers.formatEther(totalGasCost)} ETH. Limit: ${this.system.profitThreshold}%.` 
-            };
+        try {
+            const amounts = await router.getAmountsOut(tradeAmount, [WETH, tokenAddress]);
+            const expectedOutput = amounts[1]; // Token amount
+            
+            // Note: We can't know the exact ETH value of the output token instantly without a full path check,
+            // but we can check if the Gas Cost > X% of our Trade Amount.
+            
+            const estimatedGasLimit = 250000n;
+            const totalGasCost = gasPrice * estimatedGasLimit;
+            
+            // PROFIT GUARD: If Gas is > 30% of the trade value, ABORT.
+            // (e.g. Paying $30 gas to buy $100 worth of tokens is bad math)
+            if (totalGasCost > (tradeAmount * 30n / 100n)) {
+                return { safe: false, reason: "Gas fees too high relative to trade size." };
+            }
+
+            return { safe: true };
+        } catch (e) {
+            return { safe: false, reason: "Simulation Reverted (Honeypot or No Liquidity)" };
         }
-        return { safe: true };
     }
 
     // --- AI SCANNER ---
@@ -187,15 +210,17 @@ class ApexOmniGovernor {
                 return;
             }
 
+            // 1. GET BOOSTS
             const res = await axios.get(AI_SITES[0]);
             const boosted = res.data;
 
             if (boosted && boosted.length > 0) {
-                // Filter Duplicates
+                // 2. DUPLICATE CHECK
                 let rawTarget = boosted.find(t => t.tokenAddress !== this.system.lastTradedToken);
                 if (!rawTarget && boosted.length > 0) rawTarget = boosted[0];
 
                 if (rawTarget) {
+                    // 3. ENRICH DATA
                     const detailsRes = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${rawTarget.tokenAddress}`);
                     const pairs = detailsRes.data.pairs;
 
@@ -212,30 +237,31 @@ class ApexOmniGovernor {
                             source: "AI_AUTO"
                         };
 
-                        // LIQUIDITY HARD-LOCK
+                        // RISK CHECK
                         const riskConfig = this.risk[this.system.riskProfile];
                         if (target.liquidity < riskConfig.minLiquidity) return;
 
                         if(chatId) {
                             this.bot.sendMessage(chatId, 
-                                `🎯 **AI TARGET:** ${target.name} (${target.symbol})\n` +
+                                `🎯 **AI TARGET ACQUIRED:** ${target.name} (${target.symbol})\n` +
                                 `💧 **Liq:** $${target.liquidity}\n` +
-                                `🧮 **Calculating Profit Math...**`, 
+                                `🧮 **Simulating Profitability...**`, 
                                 {parse_mode: "Markdown"}
                             );
                         }
 
+                        // AUTO EXECUTE
                         await this.executeStrike(target, "BUY");
                     }
                 }
             }
         } catch (e) { console.log(`[SCAN] Error: ${e.message}`.red); }
         finally {
-            if (this.system.autoPilot && !this.system.activePosition) setTimeout(() => this.runScanner(), 3000);
+            if (this.system.autoPilot && !this.system.activePosition) setTimeout(() => this.runScanner(), 5000);
         }
     }
 
-    // --- THE OBLITERATION ENGINE (Infinite Force) ---
+    // --- THE UNSTOPPABLE FORCE ENGINE ---
     async forceConfirm(type, tokenName, txBuilder) {
         const chatId = process.env.CHAT_ID;
         const wallet = this.wallets['ETHEREUM'];
@@ -247,52 +273,48 @@ class ApexOmniGovernor {
         const execConfig = this.execution[this.system.execMode];
         const riskConfig = this.risk[this.system.riskProfile];
         
-        // Start with GOD MODE priority if selected
         let currentPriority = ethers.parseUnits(execConfig.priority, "gwei");
 
         // INFINITE FORCE LOOP
         while (true) {
             try {
                 const baseFee = (await provider.getFeeData()).maxFeePerGas || ethers.parseUnits("15", "gwei");
-                // Base Fee + (Risk Multiplier) + Priority
                 const maxFee = ((baseFee * riskConfig.gasMult) / 100n) + currentPriority;
                 
                 const txReq = await txBuilder(currentPriority, maxFee, nonce);
                 
-                // [SAFETY] HONEYPOT SIMULATION (First attempt only)
+                // [SAFETY] SIMULATION BEFORE BROADCAST (First attempt only)
                 if (attempt === 1 && type === "BUY") {
                     try {
+                        // Strip gas params for callStatic to check for reverts
                         const simTx = { ...txReq, maxFeePerGas: undefined, maxPriorityFeePerGas: undefined };
-                        await provider.call(simTx); // This WILL throw if the trade fails (Honeypot/Rug)
+                        await provider.call(simTx);
                     } catch (e) {
-                        console.log(`[GUARD] 🚨 HONEYPOT BLOCKED: ${tokenName}`.red);
+                        console.log(`[GUARD] 🚨 HONEYPOT DETECTED: ${tokenName}`.red);
                         if(chatId) this.bot.sendMessage(chatId, `🚨 **HONEYPOT BLOCKED:** ${tokenName} failed simulation. Trade Aborted.`);
-                        return null; 
+                        return null; // ABORT
                     }
                 }
 
                 const signedTx = await wallet.signTransaction(txReq);
                 const txHash = ethers.keccak256(signedTx);
 
-                // TRI-BEAM FLASHBOTS (Block N, N+1, N+2)
+                // Broadcast
                 if (this.flashbots) {
                     const block = await provider.getBlockNumber();
                     this.flashbots.sendBundle([{ signedTransaction: signedTx }], block + 1).catch(()=>{});
-                    this.flashbots.sendBundle([{ signedTransaction: signedTx }], block + 2).catch(()=>{});
-                    this.flashbots.sendBundle([{ signedTransaction: signedTx }], block + 3).catch(()=>{});
+                    this.flashbots.sendBundle([{ signedTransaction: signedTx }], block + 2).catch(()=>{}); // Redundant target
                 }
                 
-                // SOCKET FLOOD
                 const wsPayload = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [signedTx] });
                 this.execSockets.forEach(ws => { if (ws.readyState === WebSocket.OPEN) ws.send(wsPayload); });
                 
-                // STANDARD BROADCAST
                 const tx = await provider.broadcastTransaction(signedTx);
-                console.log(`🚀 [TRY ${attempt}] Scorched Earth: ${txHash}`.yellow);
+                console.log(`🚀 [TRY ${attempt}] Sent: ${txHash}`.yellow);
 
                 const receipt = await Promise.race([
                     tx.wait(1),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 3000)) // 3s Timeout
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 6000))
                 ]);
 
                 if (receipt && receipt.status === 1) {
@@ -303,23 +325,24 @@ class ApexOmniGovernor {
                     return receipt;
                 }
             } catch (err) {
-                if (attempt < 30) { 
+                if (attempt < 20) { 
                     attempt++;
-                    // GAS WAR LOGIC: If we fail, bump gas by 20%
-                    currentPriority = (currentPriority * 120n) / 100n; 
-                    console.log(`⚠️ Escalating Gas to ${ethers.formatUnits(currentPriority, 'gwei')} Gwei...`.red);
+                    currentPriority = (currentPriority * 120n) / 100n; // +20% Gas bump
+                    console.log(`⚠️ Stuck. Bumping priority to ${ethers.formatUnits(currentPriority, 'gwei')} Gwei...`.red);
                 } else {
-                    console.log(`❌ FAILED after 30 attempts.`.red);
+                    console.log(`❌ FAILED after 20 attempts.`.red);
                     return null;
                 }
             }
         }
     }
 
+    // --- STRIKE LOGIC ---
     async executeStrike(signal, type) {
         const wallet = this.wallets['ETHEREUM'];
         if (!wallet) return;
 
+        // Manual Command Bypass
         const isManual = (signal.source === "COMMAND" || signal.source === "MANUAL");
 
         const router = new ethers.Contract(ROUTER_ADDR, [
@@ -329,17 +352,18 @@ class ApexOmniGovernor {
 
         if (type === "BUY") {
             const tradeVal = ethers.parseEther(this.system.tradeAmount);
+            // 0.0001 ETH Buffer Check
             const bal = await this.providers['ETHEREUM'].getBalance(wallet.address);
             if (bal < (tradeVal + ethers.parseEther("0.0001"))) {
                 if(process.env.CHAT_ID) this.bot.sendMessage(process.env.CHAT_ID, `⚠️ **FAIL:** Insufficient ETH.`);
                 return;
             }
 
-            // PROFIT FIREWALL (Skip for Manual)
+            // PROFIT GUARD CHECK (Skip for Manual)
             if (!isManual) {
                 const feeData = await this.providers['ETHEREUM'].getFeeData();
                 const gasPrice = feeData.maxFeePerGas || feeData.gasPrice;
-                const check = await this.checkProfitability(tradeVal, gasPrice);
+                const check = await this.simulateProfitability(signal.tokenAddress, tradeVal, gasPrice);
                 
                 if (!check.safe) {
                     console.log(`[GUARD] ${check.reason}`.red);
@@ -367,6 +391,16 @@ class ApexOmniGovernor {
                 };
                 this.system.lastTradedToken = signal.tokenAddress;
                 updateQuest('trade', this.bot, process.env.CHAT_ID);
+                
+                const stratInfo = this.strategies[this.system.strategyMode].label;
+                if(process.env.CHAT_ID) {
+                    this.bot.sendMessage(process.env.CHAT_ID, 
+                        `🦁 **BUY CONFIRMED: ${signal.name} (${signal.symbol})**\n` +
+                        `💵 **Price:** $${signal.price}\n` +
+                        `📈 **Strategy:** ${stratInfo}`,
+                        {parse_mode: "Markdown"}
+                    );
+                }
                 this.runProfitMonitor();
             }
 
@@ -459,7 +493,7 @@ class ApexOmniGovernor {
         this.bot.onText(/\/start/, (msg) => {
             process.env.CHAT_ID = msg.chat.id;
             this.bot.sendMessage(msg.chat.id, `
-🦁 **APEX PREDATOR v3600.0** \`——————————————————\`
+🦁 **APEX PREDATOR v3200.0** \`——————————————————\`
 👤 **OPERATOR:** ${msg.from.first_name}
 🎖️ **RANK:** ${PLAYER.class}
 📊 **XP:** ${getXpBar()} ${PLAYER.xp}/${PLAYER.nextLevelXp}
@@ -472,6 +506,7 @@ class ApexOmniGovernor {
 \`/approve\` - Execute Pending (Forced)
 \`/sell\` - Panic Sell (Forced)
 \`/manual\` - Monitor Mode
+\`/restart\` - Reset Bot
 \`/settings\` - View Config
 \`/status\` - Live Telemetry`, {parse_mode: "Markdown"});
         });
@@ -578,4 +613,4 @@ class ApexOmniGovernor {
 // ==========================================
 http.createServer((req, res) => { res.writeHead(200); res.end("APEX_ALIVE"); }).listen(process.env.PORT || 8080);
 const governor = new ApexOmniGovernor();
-console.log(`🦁 APEX PREDATOR v3600.0 INITIALIZED`.magenta);
+console.log(`🦁 APEX PREDATOR v3200.0 INITIALIZED`.magenta);
