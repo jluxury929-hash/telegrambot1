@@ -1,12 +1,10 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR v400.0 (OMNI-FUSION SINGULARITY)
+ * 🦁 APEX PREDATOR v500.0 (OMNI-PRECOG MERGE)
  * ===============================================================================
- * THE ULTIMATE MERGE:
- * 1. AI SENTRY: Scans Web Sentiment (Script 1) + Mempool Hype (Script 3).
- * 2. NUCLEAR EXECUTION: Flashbots + Saturation Broadcast (Script 2).
- * 3. MULTI-CHAIN: Supports ETH, BASE, ARB, POLY (Script 1).
- * 4. SMART ROTATION: Auto-skips duplicates (Script 2).
+ * COMBINES:
+ * 1. OMNI-GOVERNOR (Code A): Web AI, MTE Finality Math, Multi-Chain.
+ * 2. PRE-COG SNIPER (Code B): Mempool Sniffing, Socket Flood Execution.
  * ===============================================================================
  */
 
@@ -27,57 +25,35 @@ require('colors');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
-const WSS_NODE_URL = process.env.WSS_NODE_URL; // Required for Mempool Sniffing
+const EXECUTOR_ADDRESS = process.env.EXECUTOR_ADDRESS; // From Code A
+const WSS_NODE_URL = process.env.WSS_NODE_URL; // From Code B (Mempool)
 
-// Uniswap V2 Router (ETH/Base/Arb often use same address, verify per chain)
-const ROUTER_ADDR = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; 
+// Router (From Code B)
+const UNISWAP_V2 = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+const UNISWAP_UNIVERSAL = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD";
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 
-// Network Definitions (from Script 1)
+// Network Definitions (From Code A)
 const NETWORKS = {
-    ETHEREUM: { 
-        chainId: 1, 
-        rpc: process.env.ETH_RPC || "https://rpc.mevblocker.io", 
-        flashbots: true,
-        priority: "50.0"
-    },
-    BASE: { 
-        chainId: 8453, 
-        rpc: process.env.BASE_RPC || "https://mainnet.base.org", 
-        flashbots: false,
-        priority: "1.5"
-    },
-    ARBITRUM: { 
-        chainId: 42161, 
-        rpc: process.env.ARB_RPC || "https://arb1.arbitrum.io/rpc", 
-        flashbots: false,
-        priority: "1.0" 
-    },
-    POLYGON: { 
-        chainId: 137, 
-        rpc: process.env.POLY_RPC || "https://polygon-rpc.com", 
-        flashbots: false,
-        priority: "200.0" 
-    }
+    ETHEREUM: { chainId: 1, rpc: process.env.ETH_RPC || "https://rpc.mevblocker.io", moat: "0.005", priority: "50.0" },
+    BASE: { chainId: 8453, rpc: process.env.BASE_RPC || "https://mainnet.base.org", moat: "0.0035", priority: "1.6" },
+    ARBITRUM: { chainId: 42161, rpc: process.env.ARB_RPC || "https://arb1.arbitrum.io/rpc", moat: "0.002", priority: "1.0" },
+    POLYGON: { chainId: 137, rpc: process.env.POLY_RPC || "https://polygon-rpc.com", moat: "0.001", priority: "200.0" }
 };
 
-// Web AI Targets (from Script 1)
+// Execution Cluster (From Code B)
+const EXECUTION_WSS = [
+    "wss://rpc.mevblocker.io",
+    "wss://eth.llamarpc.com",
+    "wss://ethereum.publicnode.com",
+    "wss://rpc.ankr.com/eth/ws/none"
+];
+
+// Web AI Targets (From Code A)
 const AI_SITES = [
     "https://api.dexscreener.com/token-boosts/top/v1",
     "https://api.crypto-ai-signals.com/v1/latest"
 ];
-
-// Saturation Pool for ETH Broadcasting (from Script 2)
-const ETH_RPC_POOL = [
-    "https://rpc.mevblocker.io",
-    "https://rpc.flashbots.net/fast",
-    "https://eth.llamarpc.com",
-    "https://rpc.ankr.com/eth"
-];
-
-// Mempool Thresholds (from Script 3)
-const HYPE_THRESHOLD = 5;
-const HYPE_WINDOW_MS = 2000;
 
 // ==========================================
 // 1. CLOUD BOOT GUARD
@@ -85,28 +61,28 @@ const HYPE_WINDOW_MS = 2000;
 const runHealthServer = () => {
     http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            status: "APEX_ALIVE", 
-            mode: "OMNI_FUSION",
-            mempool_active: !!WSS_NODE_URL
-        }));
+        res.end(JSON.stringify({ status: "OMNI_PRECOG_ACTIVE" }));
     }).listen(process.env.PORT || 8080);
     console.log(`[SYSTEM] Health Server Active`.green);
 };
 
 // ==========================================
-// 2. AI & MEMPOOL ENGINE (The Brain)
+// 2. AI & MEMPOOL ENGINE (MERGED)
 // ==========================================
 class AIEngine {
     constructor(governor) {
         this.governor = governor;
+        
+        // Code A: Sentiment
         this.trustFile = "trust_scores.json";
         this.sentiment = new Sentiment();
         this.trustScores = this.loadTrust();
         
-        // Mempool State
+        // Code B: Mempool
         this.mempoolCounts = {}; 
         this.processedTxHashes = new Set();
+        this.HYPE_THRESHOLD = 5;
+        this.HYPE_WINDOW_MS = 2000;
     }
 
     loadTrust() {
@@ -114,55 +90,41 @@ class AIEngine {
         catch (e) { return { WEB_AI: 0.85, MEMPOOL: 0.95 }; }
     }
 
-    updateTrust(source, success) {
-        let current = this.trustScores[source] || 0.5;
-        current = success ? Math.min(0.99, current * 1.05) : Math.max(0.1, current * 0.90);
-        this.trustScores[source] = current;
-        try { fs.writeFileSync(this.trustFile, JSON.stringify(this.trustScores)); } catch(e){}
-    }
-
-    // --- SOURCE 1: WEB SCANNER (Script 1) ---
-    async scanWeb() {
+    // --- SOURCE 1: WEB AI (Code A) ---
+    async analyzeWebIntelligence() {
         const signals = [];
-        // console.log(`[AI] Scanning Web Intelligence...`.cyan);
-        
         for (const url of AI_SITES) {
             try {
-                const res = await axios.get(url, { timeout: 3000 });
-                // DexScreener Logic
-                if (Array.isArray(res.data)) {
-                    res.data.slice(0, 3).forEach(t => {
-                        if (t.tokenAddress) signals.push({ 
-                            address: t.tokenAddress, 
-                            symbol: t.symbol || "UNKNOWN",
-                            network: "ETHEREUM", // Default, could parse chainId from response
+                const response = await axios.get(url, { timeout: 2000 });
+                if (Array.isArray(response.data)) {
+                    response.data.slice(0, 3).forEach(token => {
+                        if (token.tokenAddress) signals.push({
+                            ticker: token.tokenAddress,
+                            symbol: token.symbol || "UNKNOWN",
                             source: "WEB_AI"
                         });
                     });
                 }
-            } catch (e) {}
+            } catch (e) { continue; }
         }
         return signals;
     }
 
-    // --- SOURCE 2: MEMPOOL LISTENER (Script 3) ---
+    // --- SOURCE 2: MEMPOOL LISTENER (Code B) ---
     startMempoolListener() {
         if (!WSS_NODE_URL) {
-            console.log(`[WARN] No WSS_NODE_URL! Mempool Sniffer Disabled.`.red);
+            console.log(`[WARN] No WSS_NODE_URL! Pre-Cog Disabled.`.red);
             return;
         }
-
         console.log(`[MEMPOOL] 📡 Connecting to Hype Stream...`.cyan);
         const ws = new WebSocket(WSS_NODE_URL); 
 
         ws.on('open', () => {
-            console.log(`[MEMPOOL] ✅ Connected. Scanning...`.green);
+            console.log(`[MEMPOOL] ✅ Connected. Scanning for Hype...`.green);
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_subscribe", params: ["newPendingTransactions"] }));
         });
 
         ws.on('message', async (data) => {
-            if (!this.governor.system.autoPilot || this.governor.system.activePosition) return;
-
             try {
                 const response = JSON.parse(data);
                 if (response.method === "eth_subscription") {
@@ -171,36 +133,32 @@ class AIEngine {
                     this.processedTxHashes.add(txHash);
                     if (this.processedTxHashes.size > 5000) this.processedTxHashes.clear();
 
-                    // Fetch TX (Note: Rate limits apply on public nodes)
+                    // Note: This relies on ETH provider from Governor
                     const provider = this.governor.providers.ETHEREUM;
+                    if(!provider) return;
+                    
+                    // We try-catch the fetch to avoid crashing on rate limits
                     const tx = await provider.getTransaction(txHash).catch(() => null);
                     if (tx && tx.to && tx.data) this.processPendingTx(tx);
                 }
             } catch (e) {}
         });
 
-        ws.on('error', (e) => {
-            console.log(`[MEMPOOL] Reconnecting...`.red);
-            setTimeout(() => this.startMempoolListener(), 5000);
-        });
+        ws.on('error', () => setTimeout(() => this.startMempoolListener(), 5000));
     }
 
     processPendingTx(tx) {
-        // Basic Router Detection (Uniswap Universal / V2)
-        const routers = ["0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD", ROUTER_ADDR];
-        if (!routers.includes(tx.to)) return;
+        const to = tx.to.toLowerCase();
+        if (to !== UNISWAP_UNIVERSAL.toLowerCase() && to !== UNISWAP_V2.toLowerCase()) return;
 
-        // Naive Calldata Decode
         const data = tx.data.toLowerCase();
-        const addressRegex = /0x[a-f0-9]{40}/g;
-        const matches = data.match(addressRegex);
+        const matches = data.match(/0x[a-f0-9]{40}/g);
 
         if (matches) {
             for (const addr of matches) {
-                // Ignore WETH and Routers
-                if (addr !== WETH.toLowerCase() && !routers.map(r=>r.toLowerCase()).includes(addr)) {
+                if (addr !== WETH.toLowerCase() && addr !== UNISWAP_UNIVERSAL.toLowerCase() && addr !== UNISWAP_V2.toLowerCase()) {
                     this.updateHypeCounter(addr);
-                    break;
+                    break; 
                 }
             }
         }
@@ -210,23 +168,18 @@ class AIEngine {
         const now = Date.now();
         if (!this.mempoolCounts[tokenAddress]) this.mempoolCounts[tokenAddress] = [];
         this.mempoolCounts[tokenAddress].push(now);
-        this.mempoolCounts[tokenAddress] = this.mempoolCounts[tokenAddress].filter(t => now - t < HYPE_WINDOW_MS);
+        this.mempoolCounts[tokenAddress] = this.mempoolCounts[tokenAddress].filter(t => now - t < this.HYPE_WINDOW_MS);
 
-        if (this.mempoolCounts[tokenAddress].length >= HYPE_THRESHOLD) {
-            // TRIGGER ATTACK
-            this.governor.processSignal({
-                address: tokenAddress,
-                symbol: "PRE-COG",
-                network: "ETHEREUM",
-                source: "MEMPOOL"
-            });
-            this.mempoolCounts[tokenAddress] = []; // Reset
+        if (this.mempoolCounts[tokenAddress].length >= this.HYPE_THRESHOLD) {
+            console.log(`[PRE-COG] 🚨 HYPE DETECTED: ${tokenAddress}`.bgRed.white);
+            this.governor.executeStrike("ETHEREUM", { ticker: tokenAddress, symbol: "PRE-COG" }, "MEMPOOL");
+            this.mempoolCounts[tokenAddress] = []; 
         }
     }
 }
 
 // ==========================================
-// 3. APEX OMNI GOVERNOR (The Controller)
+// 3. OMNI GOVERNOR (The Controller)
 // ==========================================
 class ApexOmniGovernor {
     constructor() {
@@ -235,255 +188,146 @@ class ApexOmniGovernor {
         this.wallets = {};
         this.flashbots = null;
         
-        // Telegram Setup
-        this.bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-        this.setupTelegramListeners();
-
-        // System State
-        this.system = {
-            autoPilot: false,
-            activePosition: null, 
-            lastTradedToken: null, // Smart Rotation Memory
-            riskProfile: 'DEGEN',
-            tradeAmount: "0.00002"
-        };
-
-        // Risk Configs (Merged)
-        this.risk = {
-            LOW: { slippage: 50, gasMult: 120n },
-            MEDIUM: { slippage: 200, gasMult: 150n },
-            DEGEN: { slippage: 2000, gasMult: 300n }, // Nuclear
-            FINALITY: { slippage: 3000, gasMult: 500n } // Pre-Cog Max
-        };
-
-        this.initNetworks();
-    }
-
-    async initNetworks() {
-        // Initialize Providers & Wallets
-        for (const [key, cfg] of Object.entries(NETWORKS)) {
+        // Initialize Execution Sockets (From Code B)
+        this.execSockets = [];
+        EXECUTION_WSS.forEach(url => {
             try {
-                const net = ethers.Network.from(cfg.chainId);
-                const prov = new ethers.JsonRpcProvider(cfg.rpc, net, { staticNetwork: net });
-                this.providers[key] = prov;
-                if (PRIVATE_KEY) {
-                    this.wallets[key] = new ethers.Wallet(PRIVATE_KEY, prov);
-                    console.log(`[INIT] ${key} Connected: ${this.wallets[key].address}`.green);
-                }
-            } catch (e) { console.log(`[INIT] ${key} Failed`.red); }
+                const ws = new WebSocket(url);
+                ws.on('open', () => this.execSockets.push(ws));
+                ws.on('error', () => {}); 
+            } catch (e) {}
+        });
+
+        // Setup Networks
+        for (const [name, config] of Object.entries(NETWORKS)) {
+            try {
+                const network = ethers.Network.from(config.chainId);
+                const provider = new ethers.JsonRpcProvider(config.rpc, network, { staticNetwork: network });
+                this.providers[name] = provider;
+                if (PRIVATE_KEY) this.wallets[name] = new ethers.Wallet(PRIVATE_KEY, provider);
+            } catch (e) { console.error(`[${name}] Init Fail`.red); }
         }
 
-        // Initialize Flashbots (ETH Only)
-        try {
-            this.flashbots = await FlashbotsBundleProvider.create(
-                this.providers.ETHEREUM, 
-                ethers.Wallet.createRandom(), 
-                "https://relay.flashbots.net"
-            );
-            console.log(`[INIT] ☢️ NUCLEAR ENGINE: Flashbots Active`.magenta);
-        } catch (e) { console.log(`[INIT] Flashbots Failed`.red); }
+        // Init Flashbots (ETH Only)
+        if (this.providers.ETHEREUM && PRIVATE_KEY) {
+            FlashbotsBundleProvider.create(this.providers.ETHEREUM, new ethers.Wallet(PRIVATE_KEY, this.providers.ETHEREUM), "https://relay.flashbots.net")
+                .then(fb => { this.flashbots = fb; console.log(`[INIT] ☢️ FLASHBOTS ACTIVE`.magenta); });
+        }
 
-        // Start Mempool Listener
         this.ai.startMempoolListener();
     }
 
-    // --- NUCLEAR EXECUTION LOGIC (Script 2) ---
-    async executeNuclearTransaction(networkName, txBuilder, description) {
+    // --- EXECUTION LOGIC (MERGED: Code A Math + Code B Delivery) ---
+    async executeStrike(networkName, tokenSignal, source) {
+        if (!this.wallets[networkName]) return;
         const provider = this.providers[networkName];
         const wallet = this.wallets[networkName];
-        const config = this.risk[this.system.riskProfile];
+        const config = NETWORKS[networkName];
 
-        if (!wallet) return null;
-
-        // Dynamic Gas Calculation
-        const feeData = await provider.getFeeData();
-        const baseFee = feeData.maxFeePerGas || feeData.gasPrice;
+        // 1. MTE Finality Math (From Code A)
+        const [balance, feeData] = await Promise.all([provider.getBalance(wallet.address), provider.getFeeData()]);
+        const gasPrice = feeData.gasPrice || ethers.parseUnits("0.01", "gwei");
         
-        // Use Network-Specific Priority or Default
-        let prioVal = NETWORKS[networkName].priority || "3";
-        const priorityFee = ethers.parseUnits(prioVal, "gwei");
+        // Nuclear Gas Calculation (Code B logic applied to Code A structure)
+        const priorityFee = ethers.parseUnits(config.priority || "50.0", "gwei"); 
+        const executionFee = (gasPrice * 120n / 100n) + priorityFee;
+        
+        // Overhead Calculation (Code A)
+        const overhead = (2000000n * executionFee) + ethers.parseEther(config.moat) + 100000n;
 
-        // Aggressive Gas Multiplier
-        const aggPriority = (priorityFee * config.gasMult) / 100n;
-        const aggMaxFee = baseFee + aggPriority;
+        if (balance < overhead) return; // Silent fail
 
-        const nonce = await provider.getTransactionCount(wallet.address, "latest");
-        const txReq = await txBuilder(aggPriority, aggMaxFee, nonce);
-        const signedTx = await wallet.signTransaction(txReq);
+        // Absolute Volume Loan (Code A)
+        const premium = balance - overhead;
+        const loan = (premium * 10000n) / 9n; // "All-in" trade size
 
-        console.log(`[EXEC] 🚀 Sending ${description} on ${networkName}...`.yellow);
+        console.log(`[${networkName}]`.green + ` STRIKING ${tokenSignal.symbol} | Vol: ${ethers.formatEther(loan)}`);
 
-        // Flashbots Route (ETH Only)
-        if (networkName === 'ETHEREUM' && this.flashbots) {
-            const block = await provider.getBlockNumber();
-            const bundle = [{ signedTransaction: signedTx }];
-            // Target Next 3 Blocks (Script 2 Logic)
-            for(let i=1; i<=3; i++) {
-                this.flashbots.sendBundle(bundle, block + i).catch(()=>{});
-            }
+        // 2. Transaction Construction
+        let txRequest;
+        
+        // If EXECUTOR exists, use Code A logic (Smart Contract)
+        if (EXECUTOR_ADDRESS && networkName !== 'ETHEREUM') { 
+            const abi = ["function executeComplexPath(string[] path, uint256 amount) external payable"];
+            const contract = new ethers.Contract(EXECUTOR_ADDRESS, abi, wallet);
+            txRequest = await contract.executeComplexPath.populateTransaction(
+                [ethers.ZeroAddress, tokenSignal.ticker, ethers.ZeroAddress], 
+                loan, 
+                { value: premium, gasLimit: 2000000, maxFeePerGas: executionFee, maxPriorityFeePerGas: priorityFee }
+            );
+        } else {
+            // If no Executor or on ETH (Mempool Snipe), use Code B logic (Router Swap)
+            const router = new ethers.Contract(UNISWAP_V2, [
+                "function swapExactETHForTokens(uint min, address[] path, address to, uint dead) external payable returns (uint[])"
+            ], wallet);
             
-            // Saturation Broadcast (Script 2)
-            ETH_RPC_POOL.forEach(url => {
-                axios.post(url, { jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [signedTx] }).catch(()=>{});
+            txRequest = await router.swapExactETHForTokens.populateTransaction(
+                0n, // YOLO Slippage (Code B style)
+                [WETH, tokenSignal.ticker],
+                wallet.address,
+                Math.floor(Date.now()/1000)+120,
+                { value: premium, gasLimit: 300000, maxFeePerGas: executionFee, maxPriorityFeePerGas: priorityFee }
+            );
+        }
+
+        txRequest.nonce = await wallet.getNonce('pending');
+        const signedTx = await wallet.signTransaction(txRequest);
+        const txHash = ethers.keccak256(signedTx);
+
+        // 3. NUCLEAR DELIVERY (Code B: Socket Flood + Flashbots)
+        this.nuclearBroadcast(networkName, signedTx, txHash);
+    }
+
+    async nuclearBroadcast(networkName, signedTx, txHash) {
+        // A. Socket Flood (Code B)
+        const wsPayload = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [signedTx] });
+        
+        // Loop for 5 seconds (Code B "Kill Loop")
+        const killLoop = setInterval(() => {
+            this.execSockets.forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) ws.send(wsPayload);
             });
+        }, 100); // 100ms interval from Code B
+
+        // B. Flashbots (Code B)
+        if (networkName === 'ETHEREUM' && this.flashbots) {
+            const block = await this.providers.ETHEREUM.getBlockNumber();
+            const bundle = [{ signedTransaction: signedTx }];
+            this.flashbots.sendBundle(bundle, block + 1).catch(()=>{});
+            this.flashbots.sendBundle(bundle, block + 2).catch(()=>{});
         }
 
-        // Standard Broadcast (All Networks)
+        // C. Standard Broadcast (Code A fallback)
         try {
-            const tx = await provider.broadcastTransaction(signedTx);
-            const receipt = await tx.wait(1);
-            if (receipt.status === 1) {
-                console.log(`[SUCCESS] ${description} Confirmed: ${receipt.hash}`.green);
-                if (process.env.CHAT_ID) {
-                    this.bot.sendMessage(process.env.CHAT_ID, `✅ **CONFIRMED:** ${description}\n🔗 [View](${receipt.hash})`, {parse_mode: "Markdown"});
+            const tx = await this.providers[networkName].broadcastTransaction(signedTx);
+            console.log(`🚀 [${networkName}] Sent: ${tx.hash}`);
+            await tx.wait(1);
+            console.log(`✅ [${networkName}] Confirmed`.gold);
+            clearInterval(killLoop);
+        } catch (e) {
+            setTimeout(() => clearInterval(killLoop), 10000); // Stop flood after 10s
+        }
+    }
+
+    async run() {
+        console.log("╔════════════════════════════════════════════════════════╗".gold);
+        console.log("║    ⚡ APEX PREDATOR v500.0 | OMNI-PRECOG MERGE       ║".gold);
+        console.log("╚════════════════════════════════════════════════════════╝".gold);
+
+        while (true) {
+            // 1. Web AI Scan (Code A)
+            const signals = await this.ai.analyzeWebIntelligence();
+            
+            // 2. Execute Web Signals
+            for (const net of Object.keys(NETWORKS)) {
+                for (const s of signals) {
+                    await this.executeStrike(net, s, "WEB_AI");
                 }
-                return receipt;
             }
-        } catch (e) {
-            console.log(`[FAIL] ${description}: ${e.message}`.red);
+
+            // 3. 100ms Loop (Code B Speed)
+            await new Promise(r => setTimeout(r, 100));
         }
-        return null;
-    }
-
-    // --- MAIN LOGIC HUB ---
-    async processSignal(signal) {
-        // 1. Check Autopilot
-        if (!this.system.autoPilot && signal.source !== "MANUAL") return;
-
-        // 2. Smart Rotation (Script 2)
-        if (this.system.lastTradedToken === signal.address) {
-            console.log(`[SKIP] Already traded ${signal.symbol}. Rotating...`.gray);
-            return;
-        }
-
-        // 3. Busy Check
-        if (this.system.activePosition) return;
-
-        console.log(`[TARGET] Acquired: ${signal.symbol} via ${signal.source}`.bgGreen.black);
-        if (process.env.CHAT_ID) this.bot.sendMessage(process.env.CHAT_ID, `🎯 **TARGET ACQUIRED:** ${signal.symbol}\n🤖 **Source:** ${signal.source}`);
-
-        await this.executeBuy(signal);
-    }
-
-    async executeBuy(signal) {
-        const networkKey = signal.network;
-        const wallet = this.wallets[networkKey];
-        if (!wallet) return;
-
-        // Router Contract
-        const router = new ethers.Contract(ROUTER_ADDR, [
-            "function swapExactETHForTokens(uint min, address[] path, address to, uint dead) external payable returns (uint[])",
-            "function getAmountsOut(uint amt, address[] path) external view returns (uint[])"
-        ], wallet);
-
-        const tradeVal = ethers.parseEther(this.system.tradeAmount);
-        
-        // Slippage Calc
-        let minOut = 0n;
-        try {
-            const amounts = await router.getAmountsOut(tradeVal, [WETH, signal.address]);
-            const slippage = this.risk[this.system.riskProfile].slippage;
-            minOut = (amounts[1] * BigInt(10000 - slippage)) / 10000n;
-        } catch (e) {
-            console.log(`[WARN] Liquidity check failed. Using 0 minOut (YOLO).`.red);
-        }
-
-        // Execute Nuclear Tx
-        const receipt = await this.executeNuclearTransaction(networkKey, async (prio, max, n) => {
-            return await router.swapExactETHForTokens.populateTransaction(
-                minOut, [WETH, signal.address], wallet.address, Math.floor(Date.now()/1000)+120,
-                { value: tradeVal, gasLimit: 300000, maxPriorityFeePerGas: prio, maxFeePerGas: max, nonce: n }
-            );
-        }, `BUY ${signal.symbol}`);
-
-        if (receipt) {
-            this.system.activePosition = {
-                address: signal.address,
-                symbol: signal.symbol,
-                network: networkKey,
-                amount: minOut,
-                entryPrice: tradeVal,
-                startPrice: 0 // Will fetch
-            };
-            this.system.lastTradedToken = signal.address;
-            this.monitorPosition();
-        }
-    }
-
-    async executeSell() {
-        if (!this.system.activePosition) return;
-        const pos = this.system.activePosition;
-        const wallet = this.wallets[pos.network];
-
-        const token = new ethers.Contract(pos.address, ["function approve(address, uint) returns (bool)"], wallet);
-        const router = new ethers.Contract(ROUTER_ADDR, ["function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] path, address to, uint dead) external returns (uint[])"], wallet);
-
-        console.log(`[SELL] Approving...`.yellow);
-        await (await token.approve(ROUTER_ADDR, pos.amount)).wait();
-
-        const receipt = await this.executeNuclearTransaction(pos.network, async (prio, max, n) => {
-            return await router.swapExactTokensForETH.populateTransaction(
-                pos.amount, 0n, [pos.address, WETH], wallet.address, Math.floor(Date.now()/1000)+120,
-                { gasLimit: 350000, maxPriorityFeePerGas: prio, maxFeePerGas: max, nonce: n }
-            );
-        }, `SELL ${pos.symbol}`);
-
-        if (receipt) {
-            this.system.activePosition = null;
-            if (this.system.autoPilot) this.runWebLoop(); // Resume hunting
-        }
-    }
-
-    async monitorPosition() {
-        if (!this.system.activePosition) return;
-        // Simplified Logic: Sell after 1 minute or rely on manual override for now to save API calls
-        // Real-time price monitoring requires constant RPC calls which is heavy for a consolidated script
-        console.log(`[MONITOR] Holding ${this.system.activePosition.symbol}... Waiting 60s or Manual Sell`.cyan);
-        setTimeout(() => this.executeSell(), 60000);
-    }
-
-    // --- WEB SCAN LOOP (Script 1 Logic) ---
-    async runWebLoop() {
-        if (!this.system.autoPilot) return;
-        
-        const signals = await this.ai.scanWeb();
-        if (signals.length > 0) {
-            // Find best signal not currently ignored
-            const target = signals.find(s => s.address !== this.system.lastTradedToken);
-            if (target) {
-                this.processSignal({ ...target, source: "WEB_AI" });
-            }
-        }
-
-        if (!this.system.activePosition && this.system.autoPilot) {
-            setTimeout(() => this.runWebLoop(), 3000);
-        }
-    }
-
-    // --- TELEGRAM LISTENERS ---
-    setupTelegramListeners() {
-        this.bot.onText(/\/start/, (msg) => {
-            process.env.CHAT_ID = msg.chat.id;
-            this.bot.sendMessage(msg.chat.id, `🦁 **APEX OMNI-FUSION ONLINE**\n/auto - Toggle Autopilot\n/status - View Telemetry`);
-        });
-
-        this.bot.onText(/\/auto/, (msg) => {
-            this.system.autoPilot = !this.system.autoPilot;
-            this.bot.sendMessage(msg.chat.id, `🤖 **AUTOPILOT:** ${this.system.autoPilot ? "ON" : "OFF"}`);
-            if (this.system.autoPilot) this.runWebLoop();
-        });
-
-        this.bot.onText(/\/sell/, (msg) => this.executeSell());
-
-        this.bot.onText(/\/status/, async (msg) => {
-            const ethBal = await this.providers.ETHEREUM.getBalance(this.wallets.ETHEREUM.address);
-            this.bot.sendMessage(msg.chat.id, `
-📡 **TELEMETRY**
-💰 **ETH:** ${ethers.formatEther(ethBal)}
-🚀 **Mode:** ${this.system.autoPilot ? "HUNTING" : "IDLE"}
-🎒 **Pos:** ${this.system.activePosition ? this.system.activePosition.symbol : "None"}
-            `);
-        });
     }
 }
 
@@ -491,5 +335,7 @@ class ApexOmniGovernor {
 // 4. IGNITION
 // ==========================================
 runHealthServer();
-const predator = new ApexOmniGovernor();
-console.log(`🦁 APEX PREDATOR v400.0 INITIALIZED`.magenta);
+const governor = new ApexOmniGovernor();
+governor.run().catch(err => {
+    console.error("FATAL:".red, err.message);
+});
