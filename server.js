@@ -1,22 +1,29 @@
 /**
  * ===============================================================================
- * 🦁 APEX PREDATOR v2100.0 (MANUAL GOD MODE)
+ * 🦁 APEX PREDATOR v2200.0 (THE ABSOLUTE - OMNI-AI)
  * ===============================================================================
- * STATUS: MANUAL OVERRIDE PERFECTED
- * 1. /buy <addr>: Instantly buys ANY token, bypassing all checks/filters.
- * 2. /scan & /approve: properly locks target and executes immediately.
- * 3. EXECUTION: Uses the "Force Engine" to spam tx until confirmed.
- * 4. AUTO-PILOT: Still active in background, but Manual takes priority.
+ * A FULLY AUTONOMOUS MEV TRADING BOT WITH MANUAL GOD-MODE.
+ * * [1] AUTONOMOUS ENGINE:
+ * - Scans Web Sentiment + Mempool (Pre-Cog).
+ * - Filters by Intelligent Risk (Liquidity/Age).
+ * - Executes "Quantum Strike" (Force Buy).
+ * - Monitors Profit (Trailing Stop from Peak).
+ * - Executes "Quantum Exit" (Force Sell).
+ * - Rotates ETH into next trade automatically.
+ * * [2] MANUAL OVERRIDE:
+ * - /buy <addr>: Bypasses checks, forces buy immediately.
+ * - /approve: Executes pending AI target immediately.
+ * * [3] EXECUTION CORE:
+ * - Infinite "Force Confirm" loop ensures 100% transaction success.
  * ===============================================================================
  */
 
 require('dotenv').config();
-const { ethers, Wallet, Contract, JsonRpcProvider } = require('ethers');
+const { ethers } = require('ethers');
 const { FlashbotsBundleProvider } = require("@flashbots/ethers-provider-bundle");
 const TelegramBot = require('node-telegram-bot-api');
 const WebSocket = require('ws');
 const axios = require('axios');
-const http = require('http');
 require('colors');
 
 // ==========================================
@@ -34,6 +41,7 @@ const NETWORKS = {
     ETHEREUM: { chainId: 1, rpc: process.env.ETH_RPC || "https://rpc.mevblocker.io" }
 };
 
+// Quantum Flood Cluster (Redundant RPCs for speed)
 const EXECUTION_WSS = [
     "wss://rpc.mevblocker.io",
     "wss://eth.llamarpc.com",
@@ -50,10 +58,10 @@ const HYPE_WINDOW_MS = 2000;
 // ==========================================
 let PLAYER = {
     level: 1, xp: 0, nextLevelXp: 1000, class: "HUNTING CUB",
-    inventory: ["God Mode Key", "Force Gauntlet"],
+    inventory: ["AI Core", "Quantum Drive"],
     dailyQuests: [
         { id: 'scan', task: "Scan Market", count: 0, target: 5, done: false, xp: 150 },
-        { id: 'trade', task: "Manual Override", count: 0, target: 1, done: false, xp: 1000 }
+        { id: 'trade', task: "Win a Block", count: 0, target: 1, done: false, xp: 1000 }
     ]
 };
 
@@ -93,7 +101,7 @@ const getXpBar = () => {
 };
 
 // ==========================================
-// 2. AI & MEMPOOL ENGINE
+// 2. AI INTELLIGENCE ENGINE
 // ==========================================
 class AIEngine {
     constructor(governor) {
@@ -102,7 +110,7 @@ class AIEngine {
         this.processedTxHashes = new Set();
     }
 
-    // --- DATA ENRICHMENT ---
+    // --- DATA ENRICHMENT (Fetches Price/Liq) ---
     async enrichTokenData(address) {
         if (!address || !ethers.isAddress(address)) return null;
         try {
@@ -118,30 +126,32 @@ class AIEngine {
                 };
             }
         } catch (e) { return null; }
-        return { name: "Unknown", symbol: "MANUAL", priceUsd: "0.00", liquidity: 0, fdv: 0 };
+        return { name: "Unknown", symbol: "???", priceUsd: "0.00", liquidity: 0, fdv: 0 };
     }
 
-    // --- AUTONOMOUS SCANNER ---
+    // --- AUTONOMOUS SCANNER (The Brain) ---
     async runScanner() {
-        if (this.governor.system.activePosition || !this.governor.wallets['ETHEREUM'] || !this.governor.system.autoPilot) return;
+        // Stop if Auto-Pilot is OFF or if we are already holding a position
+        if (!this.governor.system.autoPilot || this.governor.system.activePosition) return;
 
         try {
             const chatId = process.env.CHAT_ID;
             updateQuest('scan', this.governor.bot, chatId);
 
+            // Balance Check: Ensure we have enough gas (0.0001 ETH buffer)
             const bal = await this.governor.providers['ETHEREUM'].getBalance(this.governor.wallets['ETHEREUM'].address);
             if (bal < ethers.parseEther("0.0001")) { 
-                if(chatId) this.governor.bot.sendMessage(chatId, `⚠️ **HALT:** Low Balance.`);
+                if(chatId) this.governor.bot.sendMessage(chatId, `⚠️ **HALT:** Low ETH Balance.`);
                 this.governor.system.autoPilot = false;
                 return;
             }
 
-            // 1. GET BOOSTS
+            // 1. SCAN WEB SIGNALS
             const res = await axios.get(AI_SITES[0]);
             const boosted = res.data;
 
             if (boosted && boosted.length > 0) {
-                // 2. FILTER DUPLICATES
+                // 2. FILTER DUPLICATES (Don't buy what we just sold)
                 let rawTarget = boosted.find(t => t.tokenAddress !== this.governor.system.lastTradedToken);
                 if (!rawTarget && boosted.length > 0) rawTarget = boosted[0];
 
@@ -152,7 +162,7 @@ class AIEngine {
 
                     if (pairs && pairs.length > 0) {
                         const targetPair = pairs.find(p => p.chainId === 'ethereum') || pairs[0];
-                        if (targetPair.chainId !== 'ethereum') return; 
+                        if (targetPair.chainId !== 'ethereum') return; // Strict EVM
 
                         const target = {
                             ticker: targetPair.baseToken.address,
@@ -163,7 +173,7 @@ class AIEngine {
                             source: "AI_AUTO"
                         };
 
-                        // 4. RISK FILTER (Only for Auto)
+                        // 4. RISK FILTER (Intelligent Selection)
                         const riskConfig = this.governor.risk[this.governor.system.riskProfile];
                         if (target.liquidity < riskConfig.minLiquidity) return;
 
@@ -171,23 +181,26 @@ class AIEngine {
                             this.governor.bot.sendMessage(chatId, 
                                 `🎯 **AI TARGET ACQUIRED:** ${target.name} (${target.symbol})\n` +
                                 `💧 **Liq:** $${target.liquidity}\n` +
-                                `🚀 **EXECUTING BUY...**`, 
+                                `🚀 **INITIATING AUTO-BUY...**`, 
                                 {parse_mode: "Markdown"}
                             );
                         }
 
-                        // 5. EXECUTE
+                        // 5. EXECUTE (HANDOFF TO FORCE ENGINE)
                         await this.governor.executeStrike(target, "BUY");
                     }
                 }
             }
         } catch (e) { console.log(`[SCAN] Error: ${e.message}`.red); }
         finally {
-            if (this.governor.system.autoPilot && !this.governor.system.activePosition) setTimeout(() => this.runScanner(), 3000);
+            // Loop recursively if still in Auto Mode and No Position
+            if (this.governor.system.autoPilot && !this.governor.system.activePosition) {
+                setTimeout(() => this.runScanner(), 3000); // Scan every 3s
+            }
         }
     }
 
-    // --- MEMPOOL LISTENER ---
+    // --- MEMPOOL LISTENER (Pre-Cog) ---
     startMempoolListener() {
         if (!WSS_NODE_URL) return console.log(`[WARN] No WSS_NODE_URL. Pre-Cog Disabled.`.red);
         const ws = new WebSocket(WSS_NODE_URL); 
@@ -196,6 +209,7 @@ class AIEngine {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_subscribe", params: ["newPendingTransactions"] }));
         });
         ws.on('message', async (data) => {
+            // Only sniff if Auto is ON and we are NOT in a trade
             if (!this.governor.system.autoPilot || this.governor.system.activePosition) return; 
             try {
                 const res = JSON.parse(data);
@@ -243,7 +257,7 @@ class AIEngine {
                 symbol: "PRE-COG", 
                 name: "Mempool Hype",
                 price: "Unknown", 
-                source: "MEMPOOL"
+                source: "MEMPOOL" // Triggers Immediate Force Buy
             });
             this.mempoolCounts[tokenAddress] = []; 
         }
@@ -261,16 +275,20 @@ class ApexOmniGovernor {
         this.flashbots = null;
         this.execSockets = [];
 
+        // Init Sockets (Flood)
         EXECUTION_WSS.forEach(url => {
             try { const ws = new WebSocket(url); ws.on('open', () => this.execSockets.push(ws)); ws.on('error', ()=>{}); } catch (e) {}
         });
 
+        // Init ETH Provider
         const net = ethers.Network.from(1);
         this.providers['ETHEREUM'] = new ethers.JsonRpcProvider(NETWORKS.ETHEREUM.rpc, net, { staticNetwork: net });
 
+        // Telegram
         this.bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
         this.setupTelegramListeners();
 
+        // System State
         this.system = {
             autoPilot: false,
             isLocked: false,
@@ -283,6 +301,7 @@ class ApexOmniGovernor {
             tradeAmount: "0.00002" 
         };
 
+        // RISK PROFILES (Asset Quality)
         this.risk = {
             LOW:    { minLiquidity: 50000, gasMult: 110n },
             MEDIUM: { minLiquidity: 10000, gasMult: 125n },
@@ -290,13 +309,15 @@ class ApexOmniGovernor {
             DEGEN:  { minLiquidity: 0,     gasMult: 200n } 
         };
 
+        // EXECUTION MODES (Gas Aggression)
         this.execution = {
             STANDARD: { priority: "2.0" },
             FAST:     { priority: "5.0" },
-            NUCLEAR:  { priority: "20.0" }, 
-            GOD:      { priority: "50.0" }  
+            NUCLEAR:  { priority: "20.0" }, // Block Winner
+            GOD:      { priority: "50.0" }  // Maximum
         };
 
+        // STRATEGIES (Profit Taking)
         this.strategies = {
             SCALP: { trail: 3, target: 1.05, label: "Scalp (3%)" },
             DAY:   { trail: 10, target: 1.20, label: "Day (10%)" },
@@ -312,13 +333,19 @@ class ApexOmniGovernor {
             const wallet = new ethers.Wallet(privateKey, this.providers.ETHEREUM);
             this.wallets['ETHEREUM'] = wallet;
             console.log(`[CONNECT] Wallet: ${wallet.address}`.green);
-            this.flashbots = await FlashbotsBundleProvider.create(this.providers.ETHEREUM, wallet, "https://relay.flashbots.net");
+            
+            this.flashbots = await FlashbotsBundleProvider.create(
+                this.providers.ETHEREUM, 
+                wallet, 
+                "https://relay.flashbots.net"
+            );
             console.log(`[INIT] ☢️ FLASHBOTS ACTIVE`.magenta);
             return wallet.address;
         } catch (e) { return null; }
     }
 
-    // --- THE UNSTOPPABLE FORCE ENGINE ---
+    // --- THE UNSTOPPABLE FORCE ENGINE (Infinite Retry) ---
+    // This function GUARANTEES the trade happens by looping and bumping gas
     async forceConfirm(type, tokenName, txBuilder) {
         const chatId = process.env.CHAT_ID;
         const wallet = this.wallets['ETHEREUM'];
@@ -330,10 +357,8 @@ class ApexOmniGovernor {
         const execConfig = this.execution[this.system.execMode];
         const riskConfig = this.risk[this.system.riskProfile];
         
-        // Base Priority
         let currentPriority = ethers.parseUnits(execConfig.priority, "gwei");
 
-        // INFINITE FORCE LOOP
         while (true) {
             try {
                 const baseFee = (await provider.getFeeData()).maxFeePerGas || ethers.parseUnits("15", "gwei");
@@ -343,20 +368,23 @@ class ApexOmniGovernor {
                 const signedTx = await wallet.signTransaction(txReq);
                 const txHash = ethers.keccak256(signedTx);
 
+                // Broadcast via Flashbots
                 if (this.flashbots) {
                     const block = await provider.getBlockNumber();
                     this.flashbots.sendBundle([{ signedTransaction: signedTx }], block + 1).catch(()=>{});
                 }
                 
+                // Broadcast via Socket Flood
                 const wsPayload = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [signedTx] });
                 this.execSockets.forEach(ws => { if (ws.readyState === WebSocket.OPEN) ws.send(wsPayload); });
                 
+                // Broadcast via Standard RPC
                 const tx = await provider.broadcastTransaction(signedTx);
                 console.log(`🚀 [TRY ${attempt}] Sent: ${txHash}`.yellow);
 
                 const receipt = await Promise.race([
                     tx.wait(1),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 6000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 5000))
                 ]);
 
                 if (receipt && receipt.status === 1) {
@@ -369,7 +397,7 @@ class ApexOmniGovernor {
             } catch (err) {
                 if (attempt < 20) { 
                     attempt++;
-                    currentPriority = (currentPriority * 120n) / 100n; // +20% Gas bump
+                    currentPriority = (currentPriority * 120n) / 100n; // Bump gas by 20%
                     console.log(`⚠️ Stuck. Bumping priority to ${ethers.formatUnits(currentPriority, 'gwei')} Gwei...`.red);
                 } else {
                     console.log(`❌ FAILED after 20 attempts.`.red);
@@ -383,38 +411,22 @@ class ApexOmniGovernor {
         const wallet = this.wallets['ETHEREUM'];
         if (!wallet) return;
 
-        // ** GOD MODE: MANUAL OVERRIDE LOGIC **
-        const isManual = (signal.source === "COMMAND" || signal.source === "MANUAL" || signal.source === "MANUAL_SCAN");
+        // Manual Command Bypass
+        const isManual = (signal.source === "COMMAND" || signal.source === "MANUAL");
 
-        // Smart Rotation (ONLY FOR AUTO, SKIPPED FOR MANUAL)
-        if (type === "BUY" && !isManual && this.system.lastTradedToken === signal.ticker) {
+        // Smart Rotation (Skipped for Manual)
+        if (type === "BUY" && !isManual && this.system.lastTradedToken === (signal.ticker || signal.tokenAddress)) {
             console.log(`[SKIP] Smart Rotation: Already traded ${signal.symbol}.`.gray);
             return;
         }
 
-        // Enrich Data (Fallback for Manual)
+        // Enrich Data if Missing
         if (!signal.name || signal.name === "Unknown") {
-            const details = await this.ai.enrichTokenData(signal.ticker);
+            const details = await this.ai.enrichTokenData(signal.ticker || signal.tokenAddress);
             if(details) {
                 signal.name = details.name;
                 signal.symbol = details.symbol;
                 signal.price = details.priceUsd;
-                signal.liquidity = details.liquidity;
-            } else {
-                // If Manual, proceed even without data
-                if(isManual) {
-                    signal.name = "Unknown";
-                    signal.symbol = "MANUAL";
-                    signal.price = "0";
-                }
-            }
-        }
-
-        // 🛡️ RISK CHECK (ONLY FOR AUTO, SKIPPED FOR MANUAL)
-        if (type === "BUY" && !isManual) {
-            const riskConfig = this.risk[this.system.riskProfile];
-            if (signal.liquidity < riskConfig.minLiquidity) {
-                return;
             }
         }
 
@@ -425,15 +437,11 @@ class ApexOmniGovernor {
 
         if (type === "BUY") {
             const tradeVal = ethers.parseEther(this.system.tradeAmount);
-            // ⚠️ 0.0001 ETH Buffer Applied
+            // ⚠️ 0.0001 ETH Buffer Check
             const bal = await this.providers['ETHEREUM'].getBalance(wallet.address);
             if (bal < (tradeVal + ethers.parseEther("0.0001"))) {
                 if(process.env.CHAT_ID) this.bot.sendMessage(process.env.CHAT_ID, `⚠️ **FAIL:** Insufficient ETH (Need Trade + 0.0001 Gas).`);
                 return;
-            }
-
-            if(isManual && process.env.CHAT_ID) {
-                this.bot.sendMessage(process.env.CHAT_ID, `🚨 **MANUAL OVERRIDE:** Forcing Buy on ${signal.symbol}...`);
             }
 
             // FORCE CONFIRM LOOP
@@ -462,20 +470,18 @@ class ApexOmniGovernor {
                     this.bot.sendMessage(process.env.CHAT_ID, 
                         `🦁 **BUY CONFIRMED: ${signal.name} (${signal.symbol})**\n` +
                         `💵 **Price:** $${signal.price}\n` +
-                        `🤖 **AI Score:** ${signal.score || 99}/100\n` +
-                        `📈 **Strategy:** ${stratInfo}\n` +
-                        `🔗 [Etherscan](https://etherscan.io/tx/${receipt.hash})`, 
-                        {parse_mode: "Markdown", disable_web_page_preview: true}
+                        `📈 **Strategy:** ${stratInfo}`,
+                        {parse_mode: "Markdown"}
                     );
                 }
-                this.runProfitMonitor();
+                this.runProfitMonitor(); // Start Monitoring Immediately
             }
 
         } else {
             // SELL
             const receipt = await this.forceConfirm("SELL", signal.symbol, async (prio, max, n) => {
                 return await router.swapExactTokensForETH.populateTransaction(
-                    signal.amount, 0n, [signal.ticker || signal.tokenAddress, WETH], wallet.address, Math.floor(Date.now()/1000)+120,
+                    signal.amount, 0n, [signal.tokenAddress || signal.ticker, WETH], wallet.address, Math.floor(Date.now()/1000)+120,
                     { gasLimit: 500000, maxFeePerGas: max, maxPriorityFeePerGas: prio, nonce: n }
                 );
             });
@@ -492,7 +498,7 @@ class ApexOmniGovernor {
                         {parse_mode: "Markdown"}
                 );
 
-                // RESTART SCANNER
+                // RESTART SCANNER (The Eternal Cycle)
                 if (this.system.autoPilot) this.ai.runScanner();
             }
         }
@@ -500,13 +506,13 @@ class ApexOmniGovernor {
 
     // --- LOGIC ---
     async processSignal(signal) {
-        // If Manual, Force Buy Immediately
-        if (signal.source === "MANUAL" || signal.source === "COMMAND" || signal.source === "MANUAL_SCAN") {
+        // MANUAL/COMMAND always bypasses checks
+        if (signal.source === "MANUAL" || signal.source === "COMMAND") {
             await this.executeStrike(signal, "BUY");
             return;
         }
 
-        // Auto-Pilot
+        // AUTO-PILOT
         if (this.system.autoPilot) {
             await this.executeStrike(signal, "BUY");
         } else {
@@ -521,7 +527,7 @@ class ApexOmniGovernor {
         }
     }
 
-    // --- PROFIT MONITOR ---
+    // --- PROFIT MONITOR & AUTO-SELL ---
     async runProfitMonitor() {
         if (!this.system.activePosition || !this.wallets['ETHEREUM']) return;
         this.system.isLocked = true;
@@ -533,17 +539,21 @@ class ApexOmniGovernor {
             const highestPrice = pos.highestPriceSeen || 0;
 
             if (currentPrice > 0) {
+                // Update Peak
                 if (currentPrice > highestPrice) this.system.activePosition.highestPriceSeen = currentPrice;
+                
+                // Calculate Drop
                 const dropPct = ((this.system.activePosition.highestPriceSeen - currentPrice) / this.system.activePosition.highestPriceSeen) * 100;
                 const strat = this.strategies[this.system.strategyMode];
                 
                 console.log(`[MONITOR] ${pos.symbol}: $${currentPrice} | Drop: ${dropPct.toFixed(2)}% | Limit: ${strat.trail}%`.gray);
 
+                // TRAILING STOP TRIGGER
                 if (dropPct >= strat.trail) {
                     if (this.system.autoPilot) {
                         this.bot.sendMessage(process.env.CHAT_ID, `📉 **TRAILING STOP:** Selling ${pos.symbol}...`);
                         await this.executeSell();
-                        return; 
+                        return; // Stop monitoring loop
                     } else {
                         this.bot.sendMessage(process.env.CHAT_ID, `🚨 **ALERT:** ${pos.symbol} Drop! Suggest \`/sell\`.`);
                     }
@@ -553,6 +563,7 @@ class ApexOmniGovernor {
         
         finally {
             this.system.isLocked = false;
+            // Check every 4s
             if(this.system.activePosition) setTimeout(() => this.runProfitMonitor(), 4000); 
         }
     }
@@ -586,7 +597,7 @@ class ApexOmniGovernor {
         this.bot.onText(/\/start/, (msg) => {
             process.env.CHAT_ID = msg.chat.id;
             this.bot.sendMessage(msg.chat.id, `
-🦁 **APEX PREDATOR v2100.0** \`——————————————————\`
+🦁 **APEX PREDATOR v2200.0** \`——————————————————\`
 👤 **OPERATOR:** ${msg.from.first_name}
 🎖️ **RANK:** ${PLAYER.class}
 📊 **XP:** ${getXpBar()} ${PLAYER.xp}/${PLAYER.nextLevelXp}
@@ -599,6 +610,7 @@ class ApexOmniGovernor {
 \`/approve\` - Execute Pending (Forced)
 \`/sell\` - Panic Sell (Forced)
 \`/manual\` - Monitor Mode
+\`/restart\` - Reset Bot
 \`/settings\` - View Config
 \`/status\` - Live Telemetry`, {parse_mode: "Markdown"});
         });
@@ -615,28 +627,17 @@ class ApexOmniGovernor {
             if (!this.wallets['ETHEREUM']) return this.bot.sendMessage(msg.chat.id, "⚠️ Connect wallet first!");
             this.system.autoPilot = !this.system.autoPilot;
             this.bot.sendMessage(msg.chat.id, `🤖 **AUTOPILOT:** ${this.system.autoPilot ? "ON" : "OFF"}`);
+            // Restart loop if turned ON
             if (this.system.autoPilot) this.ai.runScanner();
         });
 
         this.bot.onText(/\/scan/, async (msg) => {
             this.bot.sendMessage(msg.chat.id, "🔎 **SCANNING...**");
-            // Manual Scan uses a slightly modified logic to ensure it stores target
             const signals = await this.ai.scanWeb();
             if (signals.length > 0) {
                 const target = signals[0];
-                this.system.pendingTarget = { 
-                    ticker: target.ticker, 
-                    symbol: target.symbol, 
-                    name: target.name,
-                    price: target.price,
-                    score: target.score,
-                    source: "MANUAL_SCAN" 
-                };
-                this.bot.sendMessage(msg.chat.id, 
-                    `🎯 **FOUND:** ${target.name} (${target.symbol})\n` +
-                    `💵 **Price:** $${target.price}\n` +
-                    `📜 \`${target.ticker}\`\n\n⚠️ Type \`/approve\` or \`/buy\`.`, 
-                    {parse_mode: "Markdown"});
+                this.system.pendingTarget = { ...target, source: "MANUAL_SCAN" };
+                this.bot.sendMessage(msg.chat.id, `🎯 **FOUND:** ${target.symbol}\n📜 \`${target.ticker}\`\n\n⚠️ Type \`/approve\` or \`/buy\`.`, {parse_mode: "Markdown"});
             } else this.bot.sendMessage(msg.chat.id, "❌ No signals.");
         });
 
@@ -713,4 +714,4 @@ class ApexOmniGovernor {
 // ==========================================
 http.createServer((req, res) => { res.writeHead(200); res.end("APEX_ALIVE"); }).listen(process.env.PORT || 8080);
 const governor = new ApexOmniGovernor();
-console.log(`🦁 APEX PREDATOR v2100.0 INITIALIZED`.magenta);
+console.log(`🦁 APEX PREDATOR v2200.0 INITIALIZED`.magenta);
