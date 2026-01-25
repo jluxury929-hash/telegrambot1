@@ -90,6 +90,17 @@ const getDashboardMarkup = () => ({
     }
 });
 
+// MANUAL OVERRIDE COMMAND: Set trade amount via message
+bot.onText(/\/amount (.+)/, (msg, match) => {
+    const value = match[1];
+    if(!isNaN(value) && parseFloat(value) > 0) {
+        SYSTEM.tradeAmount = value;
+        bot.sendMessage(msg.chat.id, `⚙️ <b>MANUAL OVERRIDE:</b> Trade amount updated to <code>${value}</code>`, { parse_mode: 'HTML' });
+    } else {
+        bot.sendMessage(msg.chat.id, "❌ <b>INVALID AMOUNT:</b> Please provide a numeric value (e.g., /amount 0.5)");
+    }
+});
+
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const msgId = query.message.message_id;
@@ -116,7 +127,6 @@ bot.on('callback_query', async (query) => {
         bot.sendMessage(chatId, "🔌 <b>Wallet Connection:</b>\n\nPlease use the command below with your 12-word mnemonic:\n<code>/connect word1 word2 ...</code>", { parse_mode: 'HTML' });
     }
 
-    // Update UI and fix "Spinning"
     bot.answerCallbackQuery(query.id).catch(() => {});
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: msgId }).catch(() => {});
 });
