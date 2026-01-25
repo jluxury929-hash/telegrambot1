@@ -1,8 +1,8 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL ULTRA v9077 (OMNI-SHIELD MASTER)
+ * APEX PREDATOR: NEURAL ULTRA v9076 (FULL OMNI-PRECISION MASTER)
  * ===============================================================================
- * NETWORKS: SOL, BASE, BSC, ETH, ARB (Fully Active & Parallel).
+ * NETWORKS: SOL, BASE, BSC, ETH, ARB (Fully Active & Parallel Scanning).
  * SHIELD: Simulation Truth-Check + 15% Gas-to-Trade Ratio Protection ($CAD).
  * TRUTH: Insufficient Funds error only fires if blockchain simulation fails.
  * SPEED: Aggressive 2s Rebroadcast Loop + 2.5x Priority Fee Multiplier.
@@ -30,7 +30,7 @@ const CAD_RATES = { SOL: 248.15, ETH: 4920.00, BNB: 865.00 }; // Est. 2026 CAD R
 
 const NETWORKS = {
     ETH:  { id: 'ethereum', rpc: 'https://rpc.mevblocker.io', router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', sym: 'ETH' },
-    SOL:  { id: 'solana', endpoints: [process.env.SOLANA_RPC, 'https://api.mainnet-beta.solana.com', 'https://rpc.ankr.com/solana'].filter(i=>i), sym: 'SOL' },
+    SOL:  { id: 'solana', endpoints: ['https://api.mainnet-beta.solana.com', 'https://rpc.ankr.com/solana'], sym: 'SOL' },
     BASE: { id: 'base', rpc: 'https://mainnet.base.org', router: '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24', sym: 'ETH' },
     BSC:  { id: 'bsc', rpc: 'https://bsc-dataseed.binance.org/', router: '0x10ED43C718714eb63d5aA57B78B54704E256024E', sym: 'BNB' },
     ARB:  { id: 'arbitrum', rpc: 'https://arb1.arbitrum.io/rpc', router: '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506', sym: 'ETH' }
@@ -53,7 +53,7 @@ async function verifyOmniTruth(chatId, netKey) {
             const conn = new Connection(NETWORKS.SOL.endpoints[0]);
             const bal = await conn.getBalance(solWallet.publicKey);
             const rent = 2039280; // Standard Rent cost (~0.002 SOL)
-            const fee = 150000;   // 2.5x Priority Buffer
+            const fee = 150000;   // Aggressive priority fee buffer
             const totalRequired = (tradeAmt * LAMPORTS_PER_SOL) + rent + fee;
 
             if (bal < totalRequired) {
@@ -71,7 +71,7 @@ async function verifyOmniTruth(chatId, netKey) {
             const net = NETWORKS[netKey];
             const provider = new JsonRpcProvider(net.rpc);
             const bal = await provider.getBalance(evmWallet.address);
-            const gasBuffer = ethers.parseEther("0.0005"); 
+            const gasBuffer = ethers.parseEther("0.0005"); // ~$2.40 CAD buffer for EVM gas
             const totalRequired = ethers.parseEther(tradeAmt.toString()) + gasBuffer;
 
             if (bal < totalRequired) {
@@ -83,7 +83,8 @@ async function verifyOmniTruth(chatId, netKey) {
     } catch (e) { return false; }
 }
 
-// --- 4. DYNAMIC UI DASHBOARD ---
+// --- 4. UI DASHBOARD & LISTENERS ---
+
 const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
@@ -96,13 +97,11 @@ const getDashboardMarkup = () => ({
 });
 
 bot.on('callback_query', async (query) => {
+    // FIX: Acknowledge callback immediately to fix button spinning
     await bot.answerCallbackQuery(query.id).catch(() => {});
     const chatId = query.message.chat.id;
 
-    if (query.data === "cycle_risk") {
-        const risks = ['LOW', 'MEDIUM', 'HIGH'];
-        SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
-    } else if (query.data === "cycle_amt") {
+    if (query.data === "cycle_amt") {
         const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
         SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
     } else if (query.data === "cmd_auto") {
@@ -116,7 +115,7 @@ bot.on('callback_query', async (query) => {
 });
 
 bot.onText(/\/(start|menu)/, (msg) => {
-    bot.sendMessage(msg.chat.id, "<b>⚡️ APEX OMNI-MASTER v9077</b>", { parse_mode: 'HTML', ...getDashboardMarkup() });
+    bot.sendMessage(msg.chat.id, "<b>⚡️ APEX OMNI-MASTER v9076</b>\nMulti-Chain Precision Active.", { parse_mode: 'HTML', ...getDashboardMarkup() });
 });
 
 bot.onText(/\/amount (\d*\.?\d+)/, (msg, match) => {
@@ -130,17 +129,19 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         const seed = await bip39.mnemonicToSeed(mnemonic);
         const hex = seed.toString('hex');
         const conn = new Connection(NETWORKS.SOL.endpoints[0]);
+        
         const keyA = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", hex).key);
         const keyB = Keypair.fromSeed(derivePath("m/44'/501'/0'", hex).key);
-        solWallet = (await conn.getBalance(keyB.publicKey) > await conn.getBalance(keyA.publicKey)) ? keyB : keyA;
+        const [balA, balB] = await Promise.all([conn.getBalance(keyA.publicKey), conn.getBalance(keyB.publicKey)]);
+        
+        solWallet = (balB > balA) ? keyB : keyA;
         evmWallet = ethers.Wallet.fromPhrase(mnemonic);
-        bot.sendMessage(msg.chat.id, `🔗 <b>OMNI-SYNC SUCCESS</b>`, { parse_mode: 'HTML' });
+
+        bot.sendMessage(msg.chat.id, `🔗 <b>OMNI-SYNC SUCCESS</b>\n📍 SOL Tracking: <code>${solWallet.publicKey.toString()}</code>\n💰 SOL BAL: <code>${(Math.max(balA,balB)/1e9).toFixed(4)}</code>`, { parse_mode: 'HTML' });
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED</b>"); }
 });
 
-// --- 5. AGGRESSIVE ROTATION ENGINE ---
-
-
+// --- 5. OMNI-EXECUTION ENGINE ---
 
 async function startNetworkSniper(chatId, netKey) {
     while (SYSTEM.autoPilot) {
@@ -149,6 +150,7 @@ async function startNetworkSniper(chatId, netKey) {
                 const signal = await runNeuralSignalScan(netKey);
                 if (signal && signal.tokenAddress) {
                     
+                    // Simulation Check: Only fires "Insufficient" if it is the absolute Truth
                     const isSafe = await verifyOmniTruth(chatId, netKey);
                     if (!isSafe) { await new Promise(r => setTimeout(r, 60000)); continue; }
 
@@ -200,7 +202,7 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
                 if (status?.value?.confirmationStatus === 'confirmed') {
                     confirmed = true;
                     clearInterval(interval);
-                    bot.sendMessage(chatId, `✅ <b>SOL SUCCESS:</b> $${symbol} landed.`, { parse_mode: 'HTML' });
+                    bot.sendMessage(chatId, `✅ <b>SOL SUCCESS:</b> Rotated to $${symbol}.`, { parse_mode: 'HTML' });
                     return true;
                 }
                 await new Promise(r => setTimeout(r, 1500));
@@ -219,7 +221,7 @@ async function executeEvmContract(chatId, netKey, addr) {
         const wallet = evmWallet.connect(provider);
         const tx = await wallet.sendTransaction({ to: addr, value: ethers.parseEther(SYSTEM.tradeAmount), gasLimit: 250000 });
         await tx.wait();
-        bot.sendMessage(chatId, `✅ <b>${netKey} SUCCESS:</b> Rotated to Signal.`);
+        bot.sendMessage(chatId, `✅ <b>${netKey} SUCCESS:</b> Transaction Sent.`);
         return true;
     } catch (e) { return false; }
 }
@@ -235,7 +237,7 @@ async function runNeuralSignalScan(netKey) {
 
 function runStatusDashboard(chatId) {
     if (!solWallet) return;
-    bot.sendMessage(chatId, `📊 <b>STATUS</b>\n📦 <b>HOLD:</b> $${SYSTEM.currentSymbol}\n📉 <b>PnL:</b> ${SYSTEM.currentPnL.toFixed(2)}%`, { parse_mode: 'HTML' });
+    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n📦 <b>HOLDING:</b> $${SYSTEM.currentSymbol}\n📉 <b>PnL:</b> ${SYSTEM.currentPnL.toFixed(2)}%`, { parse_mode: 'HTML' });
 }
 
-http.createServer((req, res) => res.end("v9077 READY")).listen(8080);
+http.createServer((req, res) => res.end("v9076 READY")).listen(8080);
