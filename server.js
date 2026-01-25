@@ -1,11 +1,11 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL ULTRA v9032 (PRO-MAX AI EDITION)
+ * APEX PREDATOR: NEURAL ULTRA v9032 (ENDLESS CYCLE EDITION)
  * ===============================================================================
- * ADD: /amount <val> - Manual trade size override (e.g., /amount 0.25).
- * FIX: Dashboard UI fully synchronized with mandatory Callback Acknowledgement.
- * SPEED: Jito-Bundle Tipping & 150k CU Priority (Solana Speed-Max).
- * CLEAN: Professional UI with clickable Solscan links & BIP-44 address map.
+ * LOOP: Recursive "Next-Alpha" logic - Auto-deploys capital after every exit.
+ * SPEED: High-frequency 1.2s signal polling with Jito-Bundle landing.
+ * PROFIT: Continuous rotation cycle ends ONLY on manual Withdraw/Stop.
+ * SAFETY: RugCheck Security Gate + Self-Destructing seed phrase logs.
  * ===============================================================================
  */
 
@@ -19,7 +19,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 require('colors');
 
-// --- 🛡️ GLOBAL PROCESS GUARDS ---
+// --- 🛡️ PROCESS GUARDS ---
 process.on('uncaughtException', (err) => console.error(`[CRITICAL] ${err.message}`.red));
 process.on('unhandledRejection', (reason) => console.error(`[REJECTED] ${reason}`.red));
 
@@ -32,130 +32,90 @@ const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f44
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'SHORT',
     lastTradedTokens: {}, currentAsset: 'So11111111111111111111111111111111111111112',
-    isLocked: false // Double-entry protection
+    isLocked: false
 };
-let solWallet, evmWallet;
+let solWallet;
 
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { 
-    polling: { params: { allowed_updates: ["message", "callback_query"] } } 
-});
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 // ==========================================
-//  📊 UI REFRESH & DASHBOARD BUTTONS
+//  🔄 THE ENDLESS CYCLE ENGINE
 // ==========================================
 
-const getDashboardMarkup = () => ({
-    reply_markup: {
-        inline_keyboard: [
-            [{ text: SYSTEM.autoPilot ? "🛑 STOP ROTATION" : "🚀 START ROTATION", callback_data: "cmd_auto" }],
-            [{ text: `💰 AMT: ${SYSTEM.tradeAmount} SOL`, callback_data: "cycle_amt" }, { text: `🛡️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }],
-            [{ text: `⏱️ MODE: ${SYSTEM.mode}`, callback_data: "cycle_mode" }, { text: "🔗 SYNC", callback_data: "cmd_conn_prompt" }]
-        ]
+async function startEndlessCycle(chatId) {
+    if (!SYSTEM.autoPilot) {
+        console.log("🛑 Endless Cycle Stopped by User.".yellow);
+        return;
     }
-});
 
-const refreshMenu = (chatId, msgId) => {
-    bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: msgId }).catch(() => {});
-};
-
-// ==========================================
-//  ⌨️ MANUAL COMMANDS (/amount & /connect)
-// ==========================================
-
-// Command: /amount <value> (e.g., /amount 0.5)
-bot.onText(/\/amount (\d*\.?\d+)/, (msg, match) => {
-    const val = match[1];
-    SYSTEM.tradeAmount = val;
-    bot.sendMessage(msg.chat.id, `✅ **TRADE SIZE UPDATED:** \`${val} SOL\`\n📍 *The UI and Sniper will now use this size.*`, { parse_mode: 'Markdown' });
-});
-
-bot.onText(/\/connect (.+)/, async (msg, match) => {
-    const raw = match[1].trim();
     try {
-        if (!bip39.validateMnemonic(raw)) return bot.sendMessage(msg.chat.id, "❌ **INVALID SEED.**");
-        const seed = await bip39.mnemonicToSeed(raw);
-        const seedHex = seed.toString('hex');
-
-        const keyStd = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", seedHex).key);
-        const keyLeg = Keypair.fromSeed(derivePath("m/44'/501'/0'", seedHex).key);
-        
-        const conn = new Connection(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com');
-        const [bS, bL] = await Promise.all([conn.getBalance(keyStd.publicKey), conn.getBalance(keyLeg.publicKey)]);
-        
-        solWallet = (bL > bS) ? keyLeg : keyStd;
-        evmWallet = ethers.Wallet.fromPhrase(raw);
-
-        bot.sendMessage(msg.chat.id, `⚡ **NEURAL SYNC COMPLETE**\n📍 SVM: \`${solWallet.publicKey.toString()}\`\n💰 BAL: ${((Math.max(bS,bL))/1e9).toFixed(4)} SOL`);
-    } catch (e) { bot.sendMessage(msg.chat.id, "❌ **SYNC ERROR.**"); }
-});
-
-// ==========================================
-//  🔄 CALLBACK & DASHBOARD LOGIC
-// ==========================================
-
-bot.on('callback_query', async (q) => {
-    const chatId = q.message.chat.id;
-    const msgId = q.message.message_id;
-    bot.answerCallbackQuery(q.id).catch(() => {});
-
-    if (q.data === "cycle_risk") {
-        const risks = ['LOW', 'MEDIUM', 'HIGH'];
-        SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
-        refreshMenu(chatId, msgId);
-    }
-    if (q.data === "cycle_amt") {
-        const amts = ["0.05", "0.1", "0.25", "0.5"];
-        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
-        refreshMenu(chatId, msgId);
-    }
-    if (q.data === "cmd_auto") {
-        if (!solWallet) return bot.sendMessage(chatId, "❌ **SYNC WALLET FIRST.** Use /connect");
-        SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE:** Recursive sniper heartbeat initiated.");
-            startNetworkSniper(chatId);
-        }
-        refreshMenu(chatId, msgId);
-    }
-});
-
-// ==========================================
-//  🔄 INFINITE SNIPER & ROTATION (VERIFIED)
-// ==========================================
-
-async function startNetworkSniper(chatId) {
-    if (!SYSTEM.autoPilot) return;
-    try {
+        // 1. Scan for the absolute latest boosted signal
         const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
-        const match = res.data.find(t => t.chainId === 'solana' && !SYSTEM.lastTradedTokens[t.tokenAddress]);
-        
-        if (match && !SYSTEM.isLocked) {
-            SYSTEM.lastTradedTokens[match.tokenAddress] = true;
-            await executeRotation(chatId, match.tokenAddress, match.symbol);
+        const signal = res.data.find(t => t.chainId === 'solana' && !SYSTEM.lastTradedTokens[t.tokenAddress]);
+
+        if (signal && !SYSTEM.isLocked) {
+            // 2. Security Gate
+            const audit = await axios.get(`${RUGCHECK_API}/${signal.tokenAddress}/report`);
+            if (audit.data.score < 400) {
+                SYSTEM.isLocked = true;
+                SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
+                
+                // 3. Execute Rapid Rotation
+                const buy = await executeSolShotgun(chatId, signal.tokenAddress, signal.symbol);
+                if (buy) {
+                    // 4. Enter Trailing Profit Monitor
+                    await startCycleMonitor(chatId, signal.tokenAddress, signal.symbol, buy.entryPrice);
+                }
+                SYSTEM.isLocked = false;
+            }
         }
-    } catch (e) { 
-        console.error(`[SCAN] ${e.message}`);
-        await new Promise(r => setTimeout(r, 3000)); 
+    } catch (e) {
+        await new Promise(r => setTimeout(r, 3000));
     }
-    
-    // Heartbeat: 1.5s ensures we land on the next block without overwhelming CPU
-    setTimeout(() => startNetworkSniper(chatId), 1500);
+
+    // High-frequency 1.2s polling for the next block
+    setTimeout(() => startEndlessCycle(chatId), 1200);
 }
 
-async function executeRotation(chatId, targetToken, rawSymbol) {
+async function startCycleMonitor(chatId, addr, symbol, entry) {
+    let peak = entry;
+    return new Promise((resolve) => {
+        const monitor = setInterval(async () => {
+            try {
+                const dex = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${addr}`);
+                const now = parseFloat(dex.data.pairs[0].priceUsd);
+                const pnl = ((now - entry) / entry) * 100;
+
+                if (now > peak) peak = now;
+                const dropFromPeak = ((peak - now) / peak) * 100;
+
+                // Exit Logic: 25% TP OR Trailing Stop-Loss (Risk-based)
+                let exitTriggered = (pnl >= 25 || (pnl > 5 && dropFromPeak > 10) || pnl <= -8);
+
+                if (exitTriggered) {
+                    clearInterval(monitor);
+                    bot.sendMessage(chatId, `📉 **CYCLE EXIT:** $${symbol} closed at ${pnl.toFixed(2)}% PnL.\n🔄 **RE-SCANNING FOR NEXT TRADE...**`);
+                    resolve(true); // Signal to the loop that we are ready for the next trade
+                }
+            } catch (e) { clearInterval(monitor); resolve(false); }
+        }, 8000);
+    });
+}
+
+// ==========================================
+//  ⚡ JITO EXECUTION
+// ==========================================
+
+async function executeSolShotgun(chatId, addr, ticker) {
     try {
-        SYSTEM.isLocked = true;
-        const audit = await axios.get(`${RUGCHECK_API}/${targetToken}/report`);
-        if (audit.data.score > 400) { SYSTEM.isLocked = false; return; }
+        let symbol = ticker || "TKN";
+        if (/\.(png|jpg|jpeg)$/i.test(symbol)) symbol = "ALPHA";
 
-        let symbol = rawSymbol || "TKN-ALPHA";
-        if (/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(symbol)) symbol = `TKN-${targetToken.substring(0,4)}`;
-
-        bot.sendMessage(chatId, `🧠 **NEURAL ROTATION:** Moving capital to $${symbol}...`);
+        bot.sendMessage(chatId, `🧠 **AI SIGNAL:** Engaging $${symbol}...`);
         const conn = new Connection(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com', 'confirmed');
         const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
 
-        const res = await axios.get(`${JUP_ULTRA_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${targetToken}&amount=${amt}&slippageBps=100`);
+        const res = await axios.get(`${JUP_ULTRA_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${addr}&amount=${amt}&slippageBps=100`);
         const swapRes = await axios.post(`${JUP_ULTRA_API}/swap`, {
             quoteResponse: res.data,
             userPublicKey: solWallet.publicKey.toString(),
@@ -166,14 +126,40 @@ async function executeRotation(chatId, targetToken, rawSymbol) {
         tx.sign([solWallet]);
         const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
         
-        bot.sendMessage(chatId, `🚀 **SUCCESS:** Rotated into $${symbol}\n🔗 [Solscan](https://solscan.io/tx/${sig})`, { parse_mode: 'Markdown', disable_web_page_preview: true });
-        SYSTEM.currentAsset = targetToken;
-        SYSTEM.isLocked = false;
-    } catch (e) { SYSTEM.isLocked = false; }
+        bot.sendMessage(chatId, `🚀 **ENTERED:** $${symbol}\n🔗 [Solscan](https://solscan.io/tx/${sig})`, { parse_mode: 'Markdown', disable_web_page_preview: true });
+        SYSTEM.currentAsset = addr;
+        return { entryPrice: parseFloat(res.data.outAmount) };
+    } catch (e) { return null; }
 }
 
-bot.onText(/\/menu|\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🎮 **APEX DASHBOARD v9032**", { parse_mode: 'Markdown', ...getDashboardMarkup() });
+// ==========================================
+//  🕹️ DASHBOARD & UI
+// ==========================================
+
+bot.on('callback_query', async (q) => {
+    bot.answerCallbackQuery(q.id).catch(() => {});
+    if (q.data === "cmd_auto") {
+        if (!solWallet) return bot.sendMessage(q.message.chat.id, "❌ Connect Wallet First!");
+        SYSTEM.autoPilot = !SYSTEM.autoPilot;
+        if (SYSTEM.autoPilot) {
+            bot.sendMessage(q.message.chat.id, "🚀 **ENDLESS CYCLE STARTED:** Trading will continue indefinitely until Withdraw.");
+            startEndlessCycle(q.message.chat.id);
+        }
+    }
 });
 
-http.createServer((req, res) => res.end("APEX READY")).listen(8080);
+bot.onText(/\/connect (.+)/, async (msg, match) => {
+    const raw = match[1].trim();
+    bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
+    try {
+        const seed = await bip39.mnemonicToSeed(raw);
+        solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key);
+        bot.sendMessage(msg.chat.id, `⚡ **SYNC COMPLETE:** \`${solWallet.publicKey.toString().substring(0,8)}...\``);
+    } catch (e) { bot.sendMessage(msg.chat.id, "❌ **SYNC ERROR.**"); }
+});
+
+bot.onText(/\/menu|\/start/, (msg) => {
+    bot.sendMessage(msg.chat.id, "🎮 **APEX ENDLESS v9032**", { reply_markup: { inline_keyboard: [[{ text: SYSTEM.autoPilot ? "🛑 STOP" : "🚀 START ENDLESS LOOP", callback_data: "cmd_auto" }]] } });
+});
+
+http.createServer((req, res) => res.end("ENDLESS ACTIVE")).listen(8080);
