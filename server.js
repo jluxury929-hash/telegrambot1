@@ -2,7 +2,7 @@
  * ===============================================================================
  * APEX PREDATOR: NEURAL ULTRA v9032 (PRO-MAX AI EDITION)
  * ===============================================================================
- * AI: Neural Rotation - Direct swap from underperforming to top-alpha assets.
+ * ADD: /amount <val> - Manual trade size override (e.g., /amount 0.25).
  * FIX: Dashboard UI fully synchronized with mandatory Callback Acknowledgement.
  * SPEED: Jito-Bundle Tipping & 150k CU Priority (Solana Speed-Max).
  * CLEAN: Professional UI with clickable Solscan links & BIP-44 address map.
@@ -19,7 +19,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 require('colors');
 
-// --- 🛡️ GLOBAL PROCESS GUARDS (24/7 PROTECTION) ---
+// --- 🛡️ GLOBAL PROCESS GUARDS ---
 process.on('uncaughtException', (err) => console.error(`[CRITICAL] ${err.message}`.red));
 process.on('unhandledRejection', (reason) => console.error(`[REJECTED] ${reason}`.red));
 
@@ -31,7 +31,8 @@ const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f44
 // --- GLOBAL STATE ---
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'SHORT',
-    lastTradedTokens: {}, currentAsset: 'So11111111111111111111111111111111111111112'
+    lastTradedTokens: {}, currentAsset: 'So11111111111111111111111111111111111111112',
+    isLocked: false // Double-entry protection
 };
 let solWallet, evmWallet;
 
@@ -57,43 +58,16 @@ const refreshMenu = (chatId, msgId) => {
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: msgId }).catch(() => {});
 };
 
-bot.on('callback_query', async (q) => {
-    const chatId = q.message.chat.id;
-    const msgId = q.message.message_id;
-    bot.answerCallbackQuery(q.id).catch(() => {});
+// ==========================================
+//  ⌨️ MANUAL COMMANDS (/amount & /connect)
+// ==========================================
 
-    if (q.data === "cycle_risk") {
-        const risks = ['LOW', 'MEDIUM', 'HIGH'];
-        SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
-        refreshMenu(chatId, msgId);
-    }
-    if (q.data === "cycle_mode") {
-        const modes = ['SHORT', 'MEDIUM', 'LONG'];
-        SYSTEM.mode = modes[(modes.indexOf(SYSTEM.mode) + 1) % modes.length];
-        refreshMenu(chatId, msgId);
-    }
-    if (q.data === "cycle_amt") {
-        const amts = ["0.05", "0.1", "0.25", "0.5"];
-        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
-        refreshMenu(chatId, msgId);
-    }
-    if (q.data === "cmd_conn_prompt") {
-        bot.sendMessage(chatId, "⌨️ **SYNC:** Send seed phrase as: `/connect your phrase here`", { parse_mode: 'Markdown' });
-    }
-    if (q.data === "cmd_auto") {
-        if (!solWallet) return bot.sendMessage(chatId, "❌ **SYNC WALLET FIRST.**");
-        SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE:** Monitoring rotations...");
-            startNetworkSniper(chatId);
-        }
-        refreshMenu(chatId, msgId);
-    }
+// Command: /amount <value> (e.g., /amount 0.5)
+bot.onText(/\/amount (\d*\.?\d+)/, (msg, match) => {
+    const val = match[1];
+    SYSTEM.tradeAmount = val;
+    bot.sendMessage(msg.chat.id, `✅ **TRADE SIZE UPDATED:** \`${val} SOL\`\n📍 *The UI and Sniper will now use this size.*`, { parse_mode: 'Markdown' });
 });
-
-// ==========================================
-//  🔗 BIP-44 CONNECT & MULTI-PATH SYNC
-// ==========================================
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     const raw = match[1].trim();
@@ -102,7 +76,6 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         const seed = await bip39.mnemonicToSeed(raw);
         const seedHex = seed.toString('hex');
 
-        // multi-path check (Standard Phantom vs Legacy Trust)
         const keyStd = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", seedHex).key);
         const keyLeg = Keypair.fromSeed(derivePath("m/44'/501'/0'", seedHex).key);
         
@@ -117,7 +90,37 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
 });
 
 // ==========================================
-//  🔄 INFINITE SNIPER & ROTATION LOGIC
+//  🔄 CALLBACK & DASHBOARD LOGIC
+// ==========================================
+
+bot.on('callback_query', async (q) => {
+    const chatId = q.message.chat.id;
+    const msgId = q.message.message_id;
+    bot.answerCallbackQuery(q.id).catch(() => {});
+
+    if (q.data === "cycle_risk") {
+        const risks = ['LOW', 'MEDIUM', 'HIGH'];
+        SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
+        refreshMenu(chatId, msgId);
+    }
+    if (q.data === "cycle_amt") {
+        const amts = ["0.05", "0.1", "0.25", "0.5"];
+        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+        refreshMenu(chatId, msgId);
+    }
+    if (q.data === "cmd_auto") {
+        if (!solWallet) return bot.sendMessage(chatId, "❌ **SYNC WALLET FIRST.** Use /connect");
+        SYSTEM.autoPilot = !SYSTEM.autoPilot;
+        if (SYSTEM.autoPilot) {
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE:** Recursive sniper heartbeat initiated.");
+            startNetworkSniper(chatId);
+        }
+        refreshMenu(chatId, msgId);
+    }
+});
+
+// ==========================================
+//  🔄 INFINITE SNIPER & ROTATION (VERIFIED)
 // ==========================================
 
 async function startNetworkSniper(chatId) {
@@ -125,18 +128,25 @@ async function startNetworkSniper(chatId) {
     try {
         const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
         const match = res.data.find(t => t.chainId === 'solana' && !SYSTEM.lastTradedTokens[t.tokenAddress]);
-        if (match) {
+        
+        if (match && !SYSTEM.isLocked) {
             SYSTEM.lastTradedTokens[match.tokenAddress] = true;
             await executeRotation(chatId, match.tokenAddress, match.symbol);
         }
-    } catch (e) { await new Promise(r => setTimeout(r, 3000)); }
-    setTimeout(() => startNetworkSniper(chatId), 1500); // 1.5s High-frequency polling
+    } catch (e) { 
+        console.error(`[SCAN] ${e.message}`);
+        await new Promise(r => setTimeout(r, 3000)); 
+    }
+    
+    // Heartbeat: 1.5s ensures we land on the next block without overwhelming CPU
+    setTimeout(() => startNetworkSniper(chatId), 1500);
 }
 
 async function executeRotation(chatId, targetToken, rawSymbol) {
     try {
+        SYSTEM.isLocked = true;
         const audit = await axios.get(`${RUGCHECK_API}/${targetToken}/report`);
-        if (audit.data.score > 400) return;
+        if (audit.data.score > 400) { SYSTEM.isLocked = false; return; }
 
         let symbol = rawSymbol || "TKN-ALPHA";
         if (/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(symbol)) symbol = `TKN-${targetToken.substring(0,4)}`;
@@ -145,7 +155,6 @@ async function executeRotation(chatId, targetToken, rawSymbol) {
         const conn = new Connection(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com', 'confirmed');
         const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
 
-        // Direct Profitable Swap: Current Asset -> Target Asset
         const res = await axios.get(`${JUP_ULTRA_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${targetToken}&amount=${amt}&slippageBps=100`);
         const swapRes = await axios.post(`${JUP_ULTRA_API}/swap`, {
             quoteResponse: res.data,
@@ -157,9 +166,10 @@ async function executeRotation(chatId, targetToken, rawSymbol) {
         tx.sign([solWallet]);
         const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
         
-        bot.sendMessage(chatId, `🚀 **SUCCESS:** Rotated into $${symbol}\n🔗 [Transaction Link](https://solscan.io/tx/${sig})`, { parse_mode: 'Markdown', disable_web_page_preview: true });
+        bot.sendMessage(chatId, `🚀 **SUCCESS:** Rotated into $${symbol}\n🔗 [Solscan](https://solscan.io/tx/${sig})`, { parse_mode: 'Markdown', disable_web_page_preview: true });
         SYSTEM.currentAsset = targetToken;
-    } catch (e) { console.error(`[EXEC ERROR] ${e.message}`); }
+        SYSTEM.isLocked = false;
+    } catch (e) { SYSTEM.isLocked = false; }
 }
 
 bot.onText(/\/menu|\/start/, (msg) => {
