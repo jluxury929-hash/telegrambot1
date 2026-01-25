@@ -1,11 +1,11 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL ULTRA v9079 (STICKY BUTTON FIX)
+ * APEX PREDATOR: NEURAL ULTRA v9080 (REVERTED AUTO + RESPONSIVE UI)
  * ===============================================================================
- * FIX: /risk, /term, and /connect buttons (Fully interactive & non-sticky).
- * FIX: UI Sync (Forced re-render of message text + buttons on every click).
- * FIX: answerCallbackQuery (Prevents the 2-second Telegram "spinner" hang).
- * AUTO: startNetworkSniper logic UNCHANGED - fully operational.
+ * AUTO: REVERTED - Using original startNetworkSniper & Aggressive Rebroadcast.
+ * FIX: RISK, TERM, & CONNECT buttons now fully interactive and non-sticky.
+ * FIX: answerCallbackQuery (Kills button spinner) + UI Refresh on every click.
+ * NETWORKS: SOL, BASE, BSC, ETH, ARB (OMNI-DASHBOARD).
  * ===============================================================================
  */
 
@@ -25,7 +25,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 // --- 2. GLOBAL STATE ---
 const JUP_API = "https://quote-api.jup.ag/v6";
 const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0' }};
-const CAD_RATES = { SOL: 248.15, ETH: 4920.00, BNB: 865.00 };
+const CAD_RATES = { SOL: 248.15, ETH: 4920.00, BNB: 865.00 }; 
 
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'SHORT',
@@ -56,66 +56,48 @@ const getDashboardMarkup = () => ({
     }
 });
 
-const getDashboardText = () => {
-    return `<b>⚡️ APEX OMNI-MASTER v9079</b>\n` +
-           `<i>Precision Neural Engine Active.</i>\n\n` +
-           `<b>Risk Level:</b> <code>${SYSTEM.risk}</code>\n` +
-           `<b>Trade Term:</b> <code>${SYSTEM.mode}</code>\n` +
-           `<b>Trade Size:</b> <code>${SYSTEM.tradeAmount} Unit(s)</code>`;
-};
-
 // --- 4. CALLBACK & COMMAND LISTENERS (FIXED & RESPONSIVE) ---
 
 bot.on('callback_query', async (query) => {
-    const chatId = query.message.chat.id;
-    const messageId = query.message.message_id;
-
-    // Acknowledge immediately to kill the "sticky" spinner
     await bot.answerCallbackQuery(query.id).catch(() => {});
+    const chatId = query.message.chat.id;
 
-    try {
-        if (query.data === "cycle_amt") {
-            const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
-            SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
-        } 
-        else if (query.data === "cycle_risk") {
-            const risks = ['LOW', 'MEDIUM', 'HIGH'];
-            SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
-        } 
-        else if (query.data === "cycle_mode") {
-            const modes = ['SHORT', 'MEDIUM', 'LONG'];
-            SYSTEM.mode = modes[(modes.indexOf(SYSTEM.mode) + 1) % modes.length];
-        } 
-        else if (query.data === "cmd_auto") {
-            if (!solWallet) return bot.sendMessage(chatId, "⚠️ <b>Connect Wallet First!</b>", { parse_mode: 'HTML' });
-            SYSTEM.autoPilot = !SYSTEM.autoPilot;
-            if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
-        } 
-        else if (query.data === "cmd_status") {
-            return runStatusDashboard(chatId);
+    if (query.data === "cycle_amt") {
+        const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
+        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+    } 
+    else if (query.data === "cycle_risk") {
+        const risks = ['LOW', 'MEDIUM', 'HIGH'];
+        SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
+    } 
+    else if (query.data === "cycle_mode") {
+        const modes = ['SHORT', 'MEDIUM', 'LONG'];
+        SYSTEM.mode = modes[(modes.indexOf(SYSTEM.mode) + 1) % modes.length];
+    } 
+    else if (query.data === "cmd_auto") {
+        if (!solWallet) return bot.sendMessage(chatId, "⚠️ <b>Connect Wallet First!</b>", { parse_mode: 'HTML' });
+        SYSTEM.autoPilot = !SYSTEM.autoPilot;
+        if (SYSTEM.autoPilot) {
+            bot.sendMessage(chatId, `🚀 <b>AUTO-PILOT ACTIVE.</b> Rotating Capital...`, { parse_mode: 'HTML' });
+            Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
         }
-        else if (query.data === "cmd_conn") {
-            return bot.sendMessage(chatId, "⌨️ <b>Action Required:</b>\nType <code>/connect your_seed_phrase</code> to link wallets.", { parse_mode: 'HTML' });
-        }
+    } 
+    else if (query.data === "cmd_status") {
+        return runStatusDashboard(chatId);
+    }
+    else if (query.data === "cmd_conn") {
+        return bot.sendMessage(chatId, "⌨️ <b>Action Required:</b>\nType <code>/connect your_seed_phrase</code> to link.", { parse_mode: 'HTML' });
+    }
 
-        // FORCE REFRESH: Edits both text and buttons to reflect new state
-        await bot.editMessageText(getDashboardText(), {
-            chat_id: chatId,
-            message_id: messageId,
-            parse_mode: 'HTML',
-            ...getDashboardMarkup()
-        }).catch(() => {});
-
-    } catch (e) { console.error("UI Update Error: ".red, e.message); }
+    // Force UI refresh with updated labels
+    bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { 
+        chat_id: chatId, 
+        message_id: query.message.message_id 
+    }).catch(() => {});
 });
 
 bot.onText(/\/(start|menu)/, (msg) => {
-    bot.sendMessage(msg.chat.id, getDashboardText(), { parse_mode: 'HTML', ...getDashboardMarkup() });
-});
-
-bot.onText(/\/amount (\d*\.?\d+)/, (msg, match) => {
-    SYSTEM.tradeAmount = match[1];
-    bot.sendMessage(msg.chat.id, `✅ <b>TRADE SIZE:</b> <code>${SYSTEM.tradeAmount}</code>`, { parse_mode: 'HTML' });
+    bot.sendMessage(msg.chat.id, "<b>⚡️ APEX OMNI-MASTER v9080</b>\nOmni-Network Precision Engine Active.", { parse_mode: 'HTML', ...getDashboardMarkup() });
 });
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
@@ -128,13 +110,11 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         const keyB = Keypair.fromSeed(derivePath("m/44'/501'/0'", hex).key);
         solWallet = (await conn.getBalance(keyB.publicKey) > await conn.getBalance(keyA.publicKey)) ? keyB : keyA;
         evmWallet = ethers.Wallet.fromPhrase(mnemonic);
-        bot.sendMessage(msg.chat.id, `🔗 <b>OMNI-SYNC SUCCESS</b>\n📍 SOL: <code>${solWallet.publicKey.toString()}</code>`, { parse_mode: 'HTML' });
+        bot.sendMessage(msg.chat.id, `🔗 <b>OMNI-SYNC SUCCESS</b>`, { parse_mode: 'HTML' });
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED</b>"); }
 });
 
-// --- 5. OMNI-EXECUTION ENGINE (AUTO MODE - UNCHANGED) ---
-
-
+// --- 5. OMNI-EXECUTION ENGINE (ORIGINAL AUTO LOGIC) ---
 
 async function startNetworkSniper(chatId, netKey) {
     while (SYSTEM.autoPilot) {
@@ -144,11 +124,14 @@ async function startNetworkSniper(chatId, netKey) {
                 if (signal && signal.tokenAddress) {
                     const isSafe = await verifyOmniTruth(chatId, netKey);
                     if (!isSafe) { await new Promise(r => setTimeout(r, 60000)); continue; }
+
                     SYSTEM.isLocked[netKey] = true;
                     bot.sendMessage(chatId, `🧠 <b>[${netKey}] SIGNAL:</b> $${signal.symbol}\nRotating capital...`, { parse_mode: 'HTML' });
+                    
                     const res = (netKey === 'SOL')
                         ? await executeAggressiveSolRotation(chatId, signal.tokenAddress, signal.symbol)
                         : await executeEvmContract(chatId, netKey, signal.tokenAddress);
+
                     if (res) SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
                     SYSTEM.isLocked[netKey] = false;
                 }
@@ -158,11 +141,50 @@ async function startNetworkSniper(chatId, netKey) {
     }
 }
 
-// ... verifyOmniTruth, executeAggressiveSolRotation, executeEvmContract, and runNeuralSignalScan logic remains as per v9076/77
 
-function runStatusDashboard(chatId) {
-    if (!solWallet) return;
-    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n📦 <b>HOLDING:</b> $${SYSTEM.currentSymbol}\n📉 <b>PnL:</b> ${SYSTEM.currentPnL.toFixed(2)}%`, { parse_mode: 'HTML' });
+
+async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
+    let rpcIdx = 0;
+    while (rpcIdx < NETWORKS.SOL.endpoints.length) {
+        try {
+            const conn = new Connection(NETWORKS.SOL.endpoints[rpcIdx], 'confirmed');
+            const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
+            const quote = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${targetToken}&amount=${amt}&slippageBps=300`);
+            const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, {
+                quoteResponse: quote.data,
+                userPublicKey: solWallet.publicKey.toString(),
+                prioritizationFeeLamports: "auto",
+                autoMultiplier: 2.5 
+            })).data;
+            const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
+            tx.sign([solWallet]);
+            const rawTx = tx.serialize();
+            let confirmed = false;
+            let sig = "";
+            const interval = setInterval(async () => {
+                if (confirmed) return clearInterval(interval);
+                try { sig = await conn.sendRawTransaction(rawTx, { skipPreflight: true }); } catch (e) {}
+            }, 2000);
+            const startTime = Date.now();
+            while (!confirmed && Date.now() - startTime < 45000) {
+                const status = await conn.getSignatureStatus(sig);
+                if (status?.value?.confirmationStatus === 'confirmed') {
+                    confirmed = true;
+                    clearInterval(interval);
+                    SYSTEM.currentAsset = targetToken;
+                    SYSTEM.currentSymbol = symbol;
+                    bot.sendMessage(chatId, `✅ <b>SOL SUCCESS:</b> $${symbol} landed.`, { parse_mode: 'HTML' });
+                    return true;
+                }
+                await new Promise(r => setTimeout(r, 1500));
+            }
+            clearInterval(interval);
+            rpcIdx++;
+        } catch (e) { rpcIdx++; }
+    }
+    return false;
 }
 
-http.createServer((req, res) => res.end("v9079 READY")).listen(8080);
+// ... verifyOmniTruth, executeEvmContract, runNeuralSignalScan, runStatusDashboard functions from v9076/77 ...
+
+http.createServer((req, res) => res.end("v9080 READY")).listen(8080);
