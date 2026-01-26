@@ -34,11 +34,48 @@ let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'SHORT',
     lastTradedTokens: {}, isLocked: {},
     currentAsset: 'So11111111111111111111111111111111111111112',
-    entryPrice: 0, currentPnL: 0, currentSymbol: 'SOL'
+    entryPrice: 0, currentPnL: 0, currentSymbol: 'SOL',
+    lastMarketState: '', lastCheckPrice: 0
 };
-let solWallet, evmWallet;
+let solWallet, evmWallet, activeChatId;
 
-// --- 3. THE TRUTH-VERIFIED PROFIT SHIELD ---
+// --- 3. MARKET INTELLIGENCE MONITOR ---
+
+async function runMarketIntelligence(chatId) {
+    try {
+        const boosts = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
+        const solPriceRes = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+        const solPrice = parseFloat(solPriceRes.data.price);
+        
+        const signalCount = boosts.data.length;
+        const volatility = SYSTEM.lastCheckPrice ? Math.abs((solPrice - SYSTEM.lastCheckPrice) / SYSTEM.lastCheckPrice) * 100 : 0;
+        SYSTEM.lastCheckPrice = solPrice;
+
+        let currentState = '🟢 Low';
+        let advice = "Sideways market. sniper activity restricted.";
+
+        if (signalCount > 40 || volatility > 1.5) {
+            currentState = '💎 Max Profit';
+            advice = "High-speed rotation window open. Optimal volatility detected.";
+        }
+
+        if (volatility > 4.5) {
+            currentState = '🔴 Dangerous';
+            advice = "FLASH VOLATILITY. Auto-pilot deactivated to protect capital.";
+            if (SYSTEM.autoPilot) {
+                SYSTEM.autoPilot = false;
+                bot.sendMessage(chatId, `⚠️ <b>SAFETY SHUTDOWN:</b> Market state is 🔴 Dangerous. Sniper paused.`, { parse_mode: 'HTML' });
+            }
+        }
+
+        if (currentState !== SYSTEM.lastMarketState) {
+            SYSTEM.lastMarketState = currentState;
+            bot.sendMessage(chatId, `📊 <b>MARKET INTEL:</b> ${currentState}\n${advice}`, { parse_mode: 'HTML' });
+        }
+    } catch (e) { /* Silent fail to maintain uptime */ }
+}
+
+// --- 4. THE TRUTH-VERIFIED PROFIT SHIELD ---
 
 async function verifyOmniTruth(chatId, netKey) {
     const tradeAmt = parseFloat(SYSTEM.tradeAmount);
@@ -77,7 +114,7 @@ async function verifyOmniTruth(chatId, netKey) {
     } catch (e) { return false; }
 }
 
-// --- 4. UI DASHBOARD & LISTENERS ---
+// --- 5. UI DASHBOARD & LISTENERS ---
 
 const getDashboardMarkup = () => ({
     reply_markup: {
@@ -90,46 +127,32 @@ const getDashboardMarkup = () => ({
     }
 });
 
-// WITHDRAWAL FUNCTION: Liquidate to USDC on Base
 bot.onText(/\/withdraw/, async (msg) => {
     const chatId = msg.chat.id;
     if (!evmWallet) return bot.sendMessage(chatId, "❌ Sync Wallet first!");
-    
     bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL INITIATED:</b> Converting current holdings to USDC on Base...", { parse_mode: 'HTML' });
-    
     try {
         const net = NETWORKS.BASE;
         const provider = new JsonRpcProvider(net.rpc);
         const wallet = evmWallet.connect(provider);
-        const USDC_BASE = "0x833589fCD6eDb6E08f4C7C32D4f71b54bdA02913";
-        
-        // Aggressive liquidation to USDC using the defined Base router
-        const tx = await wallet.sendTransaction({
-            to: net.router, 
-            value: ethers.parseEther(SYSTEM.tradeAmount),
-            gasLimit: 300000 
-        });
-        
+        const tx = await wallet.sendTransaction({ to: net.router, value: ethers.parseEther(SYSTEM.tradeAmount), gasLimit: 300000 });
         await tx.wait();
-        bot.sendMessage(chatId, `✅ <b>WITHDRAWAL SUCCESS:</b> Funds converted to USDC on Base.\nTX: <code>${tx.hash}</code>`, { parse_mode: 'HTML' });
-    } catch (e) {
-        bot.sendMessage(chatId, "❌ <b>WITHDRAWAL FAILED:</b> Check Base network gas or balance.");
-    }
+        bot.sendMessage(chatId, `✅ <b>WITHDRAWAL SUCCESS:</b> TX: <code>${tx.hash}</code>`, { parse_mode: 'HTML' });
+    } catch (e) { bot.sendMessage(chatId, "❌ <b>WITHDRAWAL FAILED</b>"); }
 });
 
 bot.onText(/\/amount (.+)/, (msg, match) => {
     const value = match[1];
     if(!isNaN(value) && parseFloat(value) > 0) {
         SYSTEM.tradeAmount = value;
-        bot.sendMessage(msg.chat.id, `⚙️ <b>MANUAL OVERRIDE:</b> Trade amount updated to <code>${value}</code>`, { parse_mode: 'HTML' });
-    } else {
-        bot.sendMessage(msg.chat.id, "❌ <b>INVALID AMOUNT:</b> Please provide a numeric value.");
+        bot.sendMessage(msg.chat.id, `⚙️ <b>MANUAL OVERRIDE:</b> Trade amount set to <code>${value}</code>`, { parse_mode: 'HTML' });
     }
 });
 
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const msgId = query.message.message_id;
+    activeChatId = chatId;
 
     if (query.data === "cycle_amt") {
         const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
@@ -141,18 +164,13 @@ bot.on('callback_query', async (query) => {
         const modes = ["SHORT", "SCALP", "SWING"];
         SYSTEM.mode = modes[(modes.indexOf(SYSTEM.mode) + 1) % modes.length];
     } else if (query.data === "cmd_auto") {
-        if (!solWallet) {
-            await bot.answerCallbackQuery(query.id, { text: "❌ Sync Wallet First!", show_alert: true });
-            return;
-        }
+        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Sync Wallet First!", show_alert: true });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
     } else if (query.data === "cmd_status") {
         runStatusDashboard(chatId);
     } else if (query.data === "cmd_conn") {
-        bot.sendMessage(chatId, "🔌 <b>Wallet Connection:</b>\n\nUse: <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
-    } else if (query.data === "cmd_withdraw") {
-        bot.sendMessage(chatId, "🏦 Use the <code>/withdraw</code> command to liquidate your active trade amount into USDC on Base.", { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, "🔌 <b>Wallet Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
     }
 
     bot.answerCallbackQuery(query.id).catch(() => {});
@@ -160,13 +178,13 @@ bot.on('callback_query', async (query) => {
 });
 
 bot.onText(/\/(start|menu)/, (msg) => {
+    activeChatId = msg.chat.id;
     bot.sendMessage(msg.chat.id, "<b>⚔️ APEX OMNI-MASTER v9076</b>\nMulti-Chain Precision Active.", { parse_mode: 'HTML', ...getDashboardMarkup() });
 });
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     try {
         const mnemonic = match[1].trim();
-        if (mnemonic.split(' ').length < 12) throw new Error("Invalid Mnemonic");
         const seed = await bip39.mnemonicToSeed(mnemonic);
         const hex = seed.toString('hex');
         const conn = new Connection(NETWORKS.SOL.endpoints[0]);
@@ -175,11 +193,14 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         const [balA, balB] = await Promise.all([conn.getBalance(keyA.publicKey), conn.getBalance(keyB.publicKey)]);
         solWallet = (balB > balA) ? keyB : keyA;
         evmWallet = ethers.Wallet.fromPhrase(mnemonic);
-        bot.sendMessage(msg.chat.id, `✅ <b>OMNI-SYNC SUCCESS</b>\n\n📍 SOL: <code>${solWallet.publicKey.toString()}</code>\n📍 EVM: <code>${evmWallet.address}</code>\n💰 BAL: <code>${(Math.max(balA,balB)/1e9).toFixed(4)} SOL</code>`, { parse_mode: 'HTML' });
+        activeChatId = msg.chat.id;
+        bot.sendMessage(msg.chat.id, `✅ <b>OMNI-SYNC SUCCESS</b>\n\n📍 SOL: <code>${solWallet.publicKey.toString()}</code>\n💰 BAL: <code>${(Math.max(balA,balB)/1e9).toFixed(4)} SOL</code>`, { parse_mode: 'HTML' });
+        // Start Market Intel Loop
+        setInterval(() => runMarketIntelligence(activeChatId), 60000);
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED</b>"); }
 });
 
-// --- 5. OMNI-EXECUTION ENGINE ---
+// --- 6. OMNI-EXECUTION ENGINE ---
 
 async function startNetworkSniper(chatId, netKey) {
     while (SYSTEM.autoPilot) {
@@ -190,7 +211,7 @@ async function startNetworkSniper(chatId, netKey) {
                     const isSafe = await verifyOmniTruth(chatId, netKey);
                     if (!isSafe) { await new Promise(r => setTimeout(r, 60000)); continue; }
                     SYSTEM.isLocked[netKey] = true;
-                    bot.sendMessage(chatId, `🎯 <b>[${netKey}] SIGNAL:</b> $${signal.symbol}\nRotating capital...`, { parse_mode: 'HTML' });
+                    bot.sendMessage(chatId, `🎯 <b>[${netKey}] SIGNAL:</b> $${signal.symbol}`, { parse_mode: 'HTML' });
                     const res = (netKey === 'SOL')
                         ? await executeAggressiveSolRotation(chatId, signal.tokenAddress, signal.symbol)
                         : await executeEvmContract(chatId, netKey, signal.tokenAddress);
@@ -231,7 +252,7 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
                 if (status?.value?.confirmationStatus === 'confirmed') {
                     confirmed = true;
                     clearInterval(interval);
-                    bot.sendMessage(chatId, `💰 <b>SOL SUCCESS:</b> Rotated to $${symbol}.`, { parse_mode: 'HTML' });
+                    bot.sendMessage(chatId, `💰 <b>SOL SUCCESS:</b> $${symbol}.`, { parse_mode: 'HTML' });
                     return true;
                 }
                 await new Promise(r => setTimeout(r, 1500));
@@ -250,7 +271,6 @@ async function executeEvmContract(chatId, netKey, addr) {
         const wallet = evmWallet.connect(provider);
         const tx = await wallet.sendTransaction({ to: addr, value: ethers.parseEther(SYSTEM.tradeAmount), gasLimit: 250000 });
         await tx.wait();
-        bot.sendMessage(chatId, `✅ <b>${netKey} SUCCESS:</b> Transaction Sent.`);
         return true;
     } catch (e) { return false; }
 }
@@ -266,7 +286,7 @@ async function runNeuralSignalScan(netKey) {
 
 function runStatusDashboard(chatId) {
     if (!solWallet) return bot.sendMessage(chatId, "❌ Connect wallet first.");
-    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n\n<b>HOLDING:</b> $${SYSTEM.currentSymbol}\n<b>PnL:</b> ${SYSTEM.currentPnL.toFixed(2)}%\n<b>MODE:</b> ${SYSTEM.mode}`, { parse_mode: 'HTML' });
+    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n\n<b>MARKET:</b> ${SYSTEM.lastMarketState || '🟢 Low'}\n<b>PnL:</b> ${SYSTEM.currentPnL.toFixed(2)}%\n<b>AMT:</b> ${SYSTEM.tradeAmount}`, { parse_mode: 'HTML' });
 }
 
 http.createServer((req, res) => res.end("v9076 READY")).listen(8080);
