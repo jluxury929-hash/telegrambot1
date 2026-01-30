@@ -12,67 +12,67 @@ const TelegramBot = require('node-telegram-bot-api');
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 /**
- * 🔱 GHOST INJECTION: SECURITY & OMNI-RECOVERY 
+ * 🔱 GHOST INJECTION: SECURITY, WATCHDOG & AUTO-SWEEP 
  * This block shadows original functions to add logic without touching physical lines below.
  */
 
-// --- 🛡️ SHIELD CONFIGURATION ---
-const COLD_WALLET = process.env.COLD_WALLET; 
-const SWEEP_LIMIT = 1.0; // Automatically sweep when balance exceeds 1.0 SOL
-const QUIET_PROFIT_MIN = 0.85; // Raised threshold for quiet markets
-let lastFeedTouch = Date.now();
+const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
+const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
 
-// --- 🛡️ WATCHDOG & FEED MONITOR ---
+// --- 🛡️ SHIELD LAYER CONFIG ---
+const COLD_STORAGE = process.env.COLD_WALLET; 
+const SWEEP_THRESHOLD = 1.0; // Automatically sweep when balance > 1.0 SOL
+const QUIET_MARKET_MIN = 0.85; // Raised threshold for quiet markets (%)
+let lastFeedActivity = Date.now();
+
+// 1. BINANCE WATCHDOG (Anti-Blindness)
 setInterval(() => {
-    const lapse = Date.now() - lastFeedTouch;
-    if (lapse > 15000 && SYSTEM.autoPilot) {
-        SYSTEM.autoPilot = false;
-        bot.sendMessage(activeChatId, `🚨 <b>WATCHDOG: FEED DROPPED</b>\nBinance link inactive for ${Math.floor(lapse/1000)}s. Bot is blind—Emergency Pause initiated.`, { parse_mode: 'HTML' });
+    const lapse = Date.now() - lastFeedActivity;
+    if (lapse > 15000 && SYSTEM.autoPilot) { // 15s Timeout
+        SYSTEM.autoPilot = false; 
+        bot.sendMessage(activeChatId, `🚨 <b>WATCHDOG: FEED DROPPED</b>\nBinance link inactive for ${Math.floor(lapse/1000)}s. Emergency Pause initiated.`, { parse_mode: 'HTML' });
     }
 }, 5000);
 
-// --- 🛡️ DYNAMIC PROFIT SHIELD (Wraps original arb check) ---
+// 2. DYNAMIC PROFIT SCALING (Shadows original checkGlobalArb)
 const _originalCheckArb = checkGlobalArb;
 checkGlobalArb = async function(chatId) {
     const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
     const solanaPrice = solPriceRes.data.outAmount / 1e6;
     const currentDelta = Math.abs(((SYSTEM.lastBinancePrice - solanaPrice) / solanaPrice) * 100);
     
-    lastFeedTouch = Date.now(); // Feed is confirmed alive
+    lastFeedActivity = Date.now(); // Feed is alive
 
-    // Fee-Bleed Protection: If market is quiet (< 0.3%), demand 0.85% to cover Jito/Fees
+    // Fee-Bleed Protection: If market is quiet (< 0.3%), demand 0.85% to cover Jito tips
     const requiredGap = (currentDelta < 0.3) ? QUIET_PROFIT_MIN : 0.45;
     
-    if (currentDelta < requiredGap) return; // Skip tiny, unprofitable gaps
+    if (currentDelta < requiredGap) return; // Prevent fee-bleed by skipping execution
     return _originalCheckArb.apply(this, arguments);
 };
 
-// --- 🛡️ AUTO-SWEEP (Wraps original PnL tracker) ---
+// 3. AUTO-SWEEP SECURITY (Shadows original PnL tracker)
 const _originalPnL = trackTradePnL;
 trackTradePnL = async function(signature, chatId, symbol) {
-    await _originalPnL.apply(this, arguments); // Run original report first
+    await _originalPnL.apply(this, arguments); // Run original report
 
-    if (!solWallet || !COLD_WALLET) return;
+    if (!solWallet || !COLD_STORAGE) return;
     try {
         const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
-        const balance = await conn.getBalance(solWallet.publicKey);
-        const balSol = balance / 1e9;
+        const bal = await conn.getBalance(solWallet.publicKey);
+        const balSol = bal / 1e9;
 
-        if (balSol > SWEEP_LIMIT) {
-            const sweepAmt = balance - (0.01 * 1e9); // Leave 0.01 SOL for gas
+        if (balSol > SWEEP_THRESHOLD) {
+            const sweepAmt = bal - (0.01 * 1e9); // Leave 0.01 SOL for gas
             const tx = new Transaction().add(SystemProgram.transfer({
                 fromPubkey: solWallet.publicKey,
-                toPubkey: new PublicKey(COLD_WALLET),
+                toPubkey: new PublicKey(COLD_STORAGE),
                 lamports: sweepAmt
             }));
             const sig = await conn.sendAndConfirmTransaction(tx, [solWallet]);
-            bot.sendMessage(chatId, `🏦 <b>AUTO-SWEEP COMPLETE</b>\nMoved <code>${(sweepAmt/1e9).toFixed(4)} SOL</code> to Cold Storage.\nSig: <code>${sig.slice(0,8)}...</code>`, { parse_mode: 'HTML' });
+            bot.sendMessage(chatId, `🏦 <b>AUTO-SWEEP COMPLETE</b>\nMoved <code>${(sweepAmt/1e9).toFixed(4)} SOL</code> to Cold Storage.`, { parse_mode: 'HTML' });
         }
-    } catch (e) { console.log(`[SWEEP] Security extraction failed.`.red); }
+    } catch (e) { console.log(`[SWEEP] Logic bypassed.`.red); }
 };
-
-const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
-const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
 
 // 2. ENHANCED FLUID MENU (Overrides core getDashboardMarkup)
 const getDashboardMarkup = () => ({
