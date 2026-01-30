@@ -13,56 +13,49 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 /**
  * 🔱 GHOST INJECTION: WITHDRAWAL, AUTO-SWEEP, & DYNAMIC PULSE (v9076.1)
- * Shadows core functions to add v9076.1 features without touching core lines.
+ * These variables and functions shadow the core ones below without editing them.
  */
 
-// --- 🛡️ AUTO-SWEEP & PULSE CONFIGURATION ---
+// --- 🛡️ CONFIGURATION ---
 const COLD_WALLET_ADDRESS = "YOUR_LEDGER_OR_SAFE_ADDRESS_HERE"; 
 const PROFIT_THRESHOLD = 2.0; 
 const MIN_RESERVE = 5.0;      
 let lastBinanceUpdate = Date.now();
-// -------------------------------------------
+// ------------------------
 
-// 1. Initialize Volatility Buffer
+// Initialize extra state
 SYSTEM.volBuffer = [];
 
-// 2. Overwrite checkGlobalArb with Dynamic Logic (Dynamic Pulse)
+// Override checkGlobalArb (Core logic @ line 164 remains untouched)
 checkGlobalArb = async function(chatId) {
     try {
         const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
         const solPrice = solPriceRes.data.outAmount / 1e6;
         const delta = ((SYSTEM.lastBinancePrice - solPrice) / solPrice) * 100;
+        lastBinanceUpdate = Date.now(); 
 
-        lastBinanceUpdate = Date.now(); // Feed the heartbeat
-
-        // Dynamic Math: Calculate volatility premium
         SYSTEM.volBuffer.push(Math.abs(delta));
         if (SYSTEM.volBuffer.length > 30) SYSTEM.volBuffer.shift();
         const marketStress = SYSTEM.volBuffer.reduce((a, b) => a + b, 0) / SYSTEM.volBuffer.length;
-
-        // Threshold scales: 0.40% base + 20% of current market stress
         const dynThreshold = Math.max(0.40, marketStress * 1.2);
 
         if (Math.abs(delta) > dynThreshold) {
             console.log(`[EXECUTE] Delta: ${delta.toFixed(3)}% | Threshold: ${dynThreshold.toFixed(3)}%`.green.bold);
             return await executeAggressiveSolRotation(chatId, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "GLOBAL-ARB");
         }
-    } catch (e) { /* Silent fail */ }
+    } catch (e) { }
 };
 
-// 3. Heartbeat Monitor (Runs every 10 seconds)
+// Heartbeat Monitor
 setInterval(() => {
     const silenceDuration = (Date.now() - lastBinanceUpdate) / 1000;
     if (silenceDuration > 15 && SYSTEM.autoPilot) {
-        console.log(`[⚠️ ALERT] Binance Feed Silent for ${silenceDuration}s`.red.bold);
-        if (activeChatId) {
-            bot.sendMessage(activeChatId, `⚠️ <b>FEED DISRUPTION</b>\nBinance price feed has been silent for <code>${silenceDuration.toFixed(0)}s</code>. Bot is idling for safety.`, { parse_mode: 'HTML' });
-        }
-        lastBinanceUpdate = Date.now(); // Prevent alert spam
+        if (activeChatId) bot.sendMessage(activeChatId, `⚠️ <b>FEED DISRUPTION</b>\nPrice feed silent for <code>${silenceDuration.toFixed(0)}s</code>.`, { parse_mode: 'HTML' });
+        lastBinanceUpdate = Date.now(); 
     }
 }, 10000);
 
-// 4. Auto-Sweep logic (Triggered by status check)
+// Auto-Sweep Logic
 async function runAutoSweep(chatId) {
     if (typeof solWallet === 'undefined' || !solWallet) return;
     try {
@@ -70,26 +63,19 @@ async function runAutoSweep(chatId) {
         const balance = await conn.getBalance(solWallet.publicKey);
         const solBalance = balance / LAMPORTS_PER_SOL;
         const sweepAmount = solBalance - MIN_RESERVE;
-
         if (sweepAmount >= PROFIT_THRESHOLD) {
-            console.log(`[SWEEP] Profit Milestone: ${solBalance.toFixed(2)} SOL`.green.bold);
-            const transaction = new Transaction().add(
-                SystemProgram.transfer({
-                    fromPubkey: solWallet.publicKey,
-                    toPubkey: new PublicKey(COLD_WALLET_ADDRESS),
-                    lamports: Math.floor(sweepAmount * LAMPORTS_PER_SOL) - 5000,
-                })
-            );
+            const transaction = new Transaction().add(SystemProgram.transfer({ fromPubkey: solWallet.publicKey, toPubkey: new PublicKey(COLD_WALLET_ADDRESS), lamports: Math.floor(sweepAmount * LAMPORTS_PER_SOL) - 5000 }));
             const signature = await conn.sendTransaction(transaction, [solWallet]);
-            bot.sendMessage(chatId, `🛡️ <b>PROFIT SECURED</b>\n💰 <b>Secured:</b> <code>${sweepAmount.toFixed(4)} SOL</code>`, { parse_mode: 'HTML' });
+            bot.sendMessage(chatId, `🛡️ <b>PROFIT SECURED</b>\n💰 <code>${sweepAmount.toFixed(4)} SOL</code> moved to Vault.`, { parse_mode: 'HTML' });
         }
-    } catch (e) { console.log(`[SWEEP] Scanning...`.grey); }
+    } catch (e) { }
 }
 
+// Override UI and Callbacks
 const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
 const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
 
-const getDashboardMarkup = () => ({
+getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
             [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
@@ -105,18 +91,8 @@ bot.on('callback_query', async (query) => {
     const { data, message, id } = query;
     const chatId = message.chat.id;
     bot.answerCallbackQuery(id).catch(() => {});
-
-    if (data === "cmd_withdraw") {
-        if (typeof solWallet === 'undefined' || !solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet.</b>", { parse_mode: 'HTML' });
-        return bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL</b>\nSend: <code>/payout [ADDRESS]</code>", { parse_mode: 'HTML' });
-    }
-
-    if (data === "cmd_status") {
-        runAutoSweep(chatId);
-        return runStatusDashboard(chatId);
-    } 
-    
-    // Pass-through for other commands
+    if (data === "cmd_withdraw") return bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL</b>\nSend: <code>/payout [ADDRESS]</code>", { parse_mode: 'HTML' });
+    if (data === "cmd_status") { runAutoSweep(chatId); return runStatusDashboard(chatId); }
     if (data === "cycle_risk") {
         const levels = ["LOW", "MEDIUM", "MAX"];
         SYSTEM.risk = levels[(levels.indexOf(SYSTEM.risk) + 1) % levels.length];
@@ -137,7 +113,6 @@ bot.on('callback_query', async (query) => {
     } else if (data === "cmd_conn") {
         return bot.sendMessage(chatId, "🔌 <b>Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
     }
-
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: message.message_id }).catch(() => {});
 });
 
@@ -149,14 +124,11 @@ bot.onText(/\/payout (.+)/, async (msg, match) => {
         const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
         const balance = await conn.getBalance(solWallet.publicKey);
         const amount = balance - 5000000; 
-        if (amount <= 0) throw new Error("Insufficient balance.");
         const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: solWallet.publicKey, toPubkey: new PublicKey(dest), lamports: amount }));
         const sig = await conn.sendTransaction(tx, [solWallet]);
-        bot.sendMessage(chatId, `✅ <b>SENT</b>\nSig: <code>${sig}</code>`, { parse_mode: 'HTML' });
-    } catch (e) { bot.sendMessage(chatId, `⚠️ <b>FAILED:</b> ${e.message}`, { parse_mode: 'HTML' }); }
+        bot.sendMessage(chatId, `✅ <b>SENT:</b> <code>${sig}</code>`, { parse_mode: 'HTML' });
+    } catch (e) { bot.sendMessage(chatId, `⚠️ <b>FAILED</b>`, { parse_mode: 'HTML' }); }
 });
-
-console.log("💓 DYNAMIC PULSE & HEARTBEAT INJECTED SUCCESSFULLY".cyan);
 
 /**
  * ===============================================================================
