@@ -3,6 +3,7 @@
  * APEX PREDATOR: NEURAL ULTRA v9076 (GLOBAL ULTIMATUM EDITION)
  * ===============================================================================
  * Infrastructure: Binance WebSocket + Yellowstone gRPC + Jito Atomic Bundles
+ * Status: SHIELD LAYER ACTIVE | STICKY BUTTON FIX APPLIED
  */
 
 require('dotenv').config();
@@ -12,74 +13,65 @@ const TelegramBot = require('node-telegram-bot-api');
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 /**
- * 🔱 GHOST INJECTION: SECURITY, WATCHDOG & AUTO-SWEEP 
- * This block shadows original functions to add logic without touching physical lines below.
+ * 🔱 GHOST INJECTION: SECURITY SHIELD & INTERFACE OPTIMIZATION
+ * This block intercepts core functions to add security and fix UI lag.
  */
+
+// --- 🛡️ SHIELD SETTINGS ---
+const COLD_WALLET_ADDR = process.env.COLD_WALLET; 
+const SWEEP_THRESHOLD = 1.0; // Automatically sweep when Hot Wallet > 1.0 SOL
+const QUIET_PROFIT_MIN = 0.85; // Raise profit requirement when market is flat
+let lastFeedPulse = Date.now();
+
+// 1. BINANCE WATCHDOG (Feed Failure Protection)
+setInterval(() => {
+    const pulseLapse = Date.now() - lastFeedPulse;
+    if (pulseLapse > 15000 && SYSTEM.autoPilot) {
+        SYSTEM.autoPilot = false; 
+        bot.sendMessage(activeChatId, `🚨 <b>WATCHDOG: FEED DISCONNECT</b>\nBinance link inactive for ${Math.floor(pulseLapse/1000)}s. Emergency Pause active.`, { parse_mode: 'HTML' });
+    }
+}, 5000);
+
+// 2. DYNAMIC SCALING (Shadows Arb Check for Fee-Bleed Protection)
+const _originalArbCheck = checkGlobalArb;
+checkGlobalArb = async function(chatId) {
+    const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
+    const solanaPrice = solPriceRes.data.outAmount / 1e6;
+    const currentGap = Math.abs(((SYSTEM.lastBinancePrice - solanaPrice) / solanaPrice) * 100);
+    
+    lastFeedPulse = Date.now(); // Reset heartbeat
+
+    // If volatility is low, demand 0.85% profit to cover Jito/fees. Else use standard 0.45%.
+    const adaptiveRequirement = (currentGap < 0.3) ? QUIET_PROFIT_MIN : 0.45;
+    
+    if (currentGap < adaptiveRequirement) return; 
+    return _originalArbCheck.apply(this, arguments);
+};
+
+// 3. AUTO-SWEEP SECURITY (Shadows PnL Tracker)
+const _originalPnL = trackTradePnL;
+trackTradePnL = async function(signature, chatId, symbol) {
+    await _originalPnL.apply(this, arguments); // Run standard report
+
+    if (!solWallet || !COLD_WALLET_ADDR) return;
+    try {
+        const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
+        const balance = await conn.getBalance(solWallet.publicKey);
+        if ((balance / 1e9) > SWEEP_THRESHOLD) {
+            const sweepAmount = balance - (0.01 * 1e9); // Leave gas
+            const tx = new Transaction().add(SystemProgram.transfer({
+                fromPubkey: solWallet.publicKey, toPubkey: new PublicKey(COLD_WALLET_ADDR), lamports: sweepAmount
+            }));
+            const sig = await conn.sendAndConfirmTransaction(tx, [solWallet]);
+            bot.sendMessage(chatId, `🏦 <b>AUTO-SWEEP COMPLETE</b>\nSecured <code>${(sweepAmount/1e9).toFixed(4)} SOL</code> to Cold Storage.`, { parse_mode: 'HTML' });
+        }
+    } catch (e) { console.log(`[SHIELD] Sweep failed.`.red); }
+};
 
 const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
 const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
 
-// --- 🛡️ SHIELD LAYER CONFIG ---
-const COLD_STORAGE = process.env.COLD_WALLET; 
-const SWEEP_THRESHOLD = 1.0;  // Automatically move funds when balance > 1.0 SOL
-const QUIET_MARKET_MIN = 0.85; // Raised threshold for quiet markets (%)
-let lastFeedActivity = Date.now();
-
-// 1. BINANCE WATCHDOG (Anti-Blindness)
-// This runs in the background to ensure the bot never trades on "stale" prices.
-setInterval(() => {
-    const lapse = Date.now() - lastFeedActivity;
-    if (lapse > 15000 && SYSTEM.autoPilot) { // 15s Timeout
-        SYSTEM.autoPilot = false; 
-        bot.sendMessage(activeChatId, `🚨 <b>WATCHDOG: FEED DROPPED</b>\nBinance link inactive for ${Math.floor(lapse/1000)}s. Emergency Pause initiated.`, { parse_mode: 'HTML' });
-    }
-}, 5000);
-
-// 2. DYNAMIC PROFIT SCALING (Shadows original checkGlobalArb)
-// Automatically raises profit requirements when market volatility is low.
-const _originalCheckArb = checkGlobalArb;
-checkGlobalArb = async function(chatId) {
-    const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
-    const solanaPrice = solPriceRes.data.outAmount / 1e6;
-    const currentDelta = Math.abs(((SYSTEM.lastBinancePrice - solanaPrice) / solanaPrice) * 100);
-    
-    lastFeedActivity = Date.now(); // Feed is alive
-
-    // Fee-Bleed Protection: If market is quiet (< 0.3% gap), demand 0.85% to cover Jito tips/fees
-    const requiredGap = (currentDelta < 0.3) ? QUIET_MARKET_MIN : 0.45;
-    
-    if (currentDelta < requiredGap) return; // Prevent fee-bleed by skipping execution
-    return _originalCheckArb.apply(this, arguments);
-};
-
-// 3. AUTO-SWEEP SECURITY (Shadows original PnL tracker)
-// Physically moves profits from Hot Wallet to Cold Wallet after every trade.
-const _originalPnL = trackTradePnL;
-trackTradePnL = async function(signature, chatId, symbol) {
-    await _originalPnL.apply(this, arguments); // Run original report
-
-    if (!solWallet || !COLD_STORAGE) return;
-    try {
-        const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
-        const bal = await conn.getBalance(solWallet.publicKey);
-        const balSol = bal / 1e9;
-
-        if (balSol > SWEEP_THRESHOLD) {
-            const sweepAmt = bal - (0.01 * 1e9); // Leave 0.01 SOL for gas/rent
-            const tx = new Transaction().add(SystemProgram.transfer({
-                fromPubkey: solWallet.publicKey,
-                toPubkey: new PublicKey(COLD_STORAGE),
-                lamports: sweepAmt
-            }));
-            const sig = await conn.sendAndConfirmTransaction(tx, [solWallet]);
-            bot.sendMessage(chatId, `🏦 <b>AUTO-SWEEP COMPLETE</b>\nMoved <code>${(sweepAmt/1e9).toFixed(4)} SOL</code> to Cold Storage.`, { parse_mode: 'HTML' });
-        }
-    } catch (e) { console.log(`[SWEEP] Logic bypassed.`.red); }
-};
-
-
-
-// 2. ENHANCED FLUID MENU (Overrides core getDashboardMarkup)
+// 2. ENHANCED FLUID MENU
 const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
@@ -92,41 +84,46 @@ const getDashboardMarkup = () => ({
     }
 });
 
-// 3. INJECTED WITHDRAWAL HANDLER
+// 3. FIX: NON-STICKY CALLBACK HANDLER
 bot.on('callback_query', async (query) => {
     const { data, message, id } = query;
     const chatId = message.chat.id;
-    bot.answerCallbackQuery(id).catch(() => {});
 
-    if (data === "cmd_withdraw") {
-        if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet first.</b>", { parse_mode: 'HTML' });
-        return bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL PROTOCOL</b>\nTo withdraw profits, send:\n<code>/payout [ADDRESS]</code>", { parse_mode: 'HTML' });
-    }
+    // Release button instantly to stop "sticky" spinning
+    await bot.answerCallbackQuery(id).catch(() => {});
 
-    if (data === "cycle_risk") {
-        const levels = ["LOW", "MEDIUM", "MAX"];
-        SYSTEM.risk = levels[(levels.indexOf(SYSTEM.risk) + 1) % levels.length];
-    } else if (data === "cycle_mode") {
-        const terms = ["SHORT", "MID", "LONG"];
-        SYSTEM.mode = terms[(terms.indexOf(SYSTEM.mode) + 1) % terms.length];
-    } else if (data === "cycle_amt") {
-        const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
-        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
-    } else if (data === "tg_atomic") {
-        SYSTEM.atomicOn = !SYSTEM.atomicOn;
-    } else if (data === "tg_flash") {
-        SYSTEM.flashOn = !SYSTEM.flashOn;
-    } else if (data === "cmd_auto") {
-        if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Sync Wallet First!</b>", { parse_mode: 'HTML' });
-        SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
-    } else if (data === "cmd_status") {
-        return runStatusDashboard(chatId);
-    } else if (data === "cmd_conn") {
-        return bot.sendMessage(chatId, "🔌 <b>Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
-    }
+    try {
+        if (data === "cmd_withdraw") {
+            if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet first.</b>", { parse_mode: 'HTML' });
+            return bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL PROTOCOL</b>\nTo withdraw profits, send:\n<code>/payout [ADDRESS]</code>", { parse_mode: 'HTML' });
+        }
 
-    bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: message.message_id }).catch(() => {});
+        if (data === "cycle_risk") {
+            const levels = ["LOW", "MEDIUM", "MAX"];
+            SYSTEM.risk = levels[(levels.indexOf(SYSTEM.risk) + 1) % levels.length];
+        } else if (data === "cycle_mode") {
+            const terms = ["SHORT", "MID", "LONG"];
+            SYSTEM.mode = terms[(terms.indexOf(SYSTEM.mode) + 1) % terms.length];
+        } else if (data === "cycle_amt") {
+            const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
+            SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+        } else if (data === "tg_atomic") {
+            SYSTEM.atomicOn = !SYSTEM.atomicOn;
+        } else if (data === "tg_flash") {
+            SYSTEM.flashOn = !SYSTEM.flashOn;
+        } else if (data === "cmd_auto") {
+            if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Sync Wallet First!</b>", { parse_mode: 'HTML' });
+            SYSTEM.autoPilot = !SYSTEM.autoPilot;
+            if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
+        } else if (data === "cmd_status") {
+            return runStatusDashboard(chatId);
+        } else if (data === "cmd_conn") {
+            return bot.sendMessage(chatId, "🔌 <b>Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
+        }
+
+        // Refresh menu state
+        await bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: message.message_id }).catch(() => {});
+    } catch (e) { console.log(`[UI FIX] Callback error.`.red); }
 });
 
 // 4. WITHDRAWAL EXECUTION (SOL & SPL)
@@ -138,9 +135,7 @@ bot.onText(/\/payout (.+)/, async (msg, match) => {
     try {
         const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
         const balance = await conn.getBalance(solWallet.publicKey);
-        
-        // Ensure minimum 0.005 SOL remains for network rent
-        const amount = balance - 5000000; 
+        const amount = balance - 5000000; // Gas rent buffer
         if (amount <= 0) throw new Error("Insufficient balance for gas.");
 
         const tx = new Transaction().add(
