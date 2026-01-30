@@ -13,7 +13,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 /**
  * 🔱 GHOST INJECTION: WITHDRAWAL, AUTO-SWEEP, & DYNAMIC PULSE (v9076.1)
- * These variables and functions shadow the core ones below without editing them.
+ * Shadows core functions to add v9076.1 features without touching core lines.
  */
 
 // --- 🛡️ CONFIGURATION ---
@@ -23,10 +23,7 @@ const MIN_RESERVE = 5.0;
 let lastBinanceUpdate = Date.now();
 // ------------------------
 
-// Initialize extra state
-SYSTEM.volBuffer = [];
-
-// Override checkGlobalArb (Core logic @ line 164 remains untouched)
+// 1. Overwrite checkGlobalArb (Core logic @ line 164 remains untouched)
 checkGlobalArb = async function(chatId) {
     try {
         const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
@@ -34,6 +31,9 @@ checkGlobalArb = async function(chatId) {
         const delta = ((SYSTEM.lastBinancePrice - solPrice) / solPrice) * 100;
         lastBinanceUpdate = Date.now(); 
 
+        // Safely initialize volBuffer on the fly
+        if (!SYSTEM.volBuffer) SYSTEM.volBuffer = [];
+        
         SYSTEM.volBuffer.push(Math.abs(delta));
         if (SYSTEM.volBuffer.length > 30) SYSTEM.volBuffer.shift();
         const marketStress = SYSTEM.volBuffer.reduce((a, b) => a + b, 0) / SYSTEM.volBuffer.length;
@@ -46,16 +46,17 @@ checkGlobalArb = async function(chatId) {
     } catch (e) { }
 };
 
-// Heartbeat Monitor
+// 2. Heartbeat Monitor
 setInterval(() => {
+    if (typeof SYSTEM === 'undefined' || !SYSTEM.autoPilot) return;
     const silenceDuration = (Date.now() - lastBinanceUpdate) / 1000;
-    if (silenceDuration > 15 && SYSTEM.autoPilot) {
+    if (silenceDuration > 15) {
         if (activeChatId) bot.sendMessage(activeChatId, `⚠️ <b>FEED DISRUPTION</b>\nPrice feed silent for <code>${silenceDuration.toFixed(0)}s</code>.`, { parse_mode: 'HTML' });
         lastBinanceUpdate = Date.now(); 
     }
 }, 10000);
 
-// Auto-Sweep Logic
+// 3. Auto-Sweep Logic
 async function runAutoSweep(chatId) {
     if (typeof solWallet === 'undefined' || !solWallet) return;
     try {
@@ -71,17 +72,17 @@ async function runAutoSweep(chatId) {
     } catch (e) { }
 }
 
-// Override UI and Callbacks
+// 4. Shadow UI/Callbacks
 const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
 const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
 
 getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
-            [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
-            [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
-            [{ text: `⚠️ RISK: ${RISK_LABELS[SYSTEM.risk] || '⚖️ MED'}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${TERM_LABELS[SYSTEM.mode] || '⏱️ SHRT'}`, callback_data: "cycle_mode" }],
-            [{ text: SYSTEM.atomicOn ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: SYSTEM.flashOn ? "⚡ FLASH: ON" : "⚡ FLASH: OFF", callback_data: "tg_flash" }],
+            [{ text: (typeof SYSTEM !== 'undefined' && SYSTEM.autoPilot) ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
+            [{ text: `💰 AMT: ${(typeof SYSTEM !== 'undefined') ? SYSTEM.tradeAmount : '0.1'}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
+            [{ text: `⚠️ RISK: ${RISK_LABELS[(typeof SYSTEM !== 'undefined') ? SYSTEM.risk : 'MAX']}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${TERM_LABELS[(typeof SYSTEM !== 'undefined') ? SYSTEM.mode : 'SHORT']}`, callback_data: "cycle_mode" }],
+            [{ text: (typeof SYSTEM !== 'undefined' && SYSTEM.atomicOn) ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: (typeof SYSTEM !== 'undefined' && SYSTEM.flashOn) ? "⚡ FLASH: ON" : "⚡ FLASH: OFF", callback_data: "tg_flash" }],
             [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }, { text: "🏦 WITHDRAW (USDC)", callback_data: "cmd_withdraw" }]
         ]
     }
@@ -93,6 +94,10 @@ bot.on('callback_query', async (query) => {
     bot.answerCallbackQuery(id).catch(() => {});
     if (data === "cmd_withdraw") return bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL</b>\nSend: <code>/payout [ADDRESS]</code>", { parse_mode: 'HTML' });
     if (data === "cmd_status") { runAutoSweep(chatId); return runStatusDashboard(chatId); }
+    
+    // Safety check for initialized system
+    if (typeof SYSTEM === 'undefined') return bot.sendMessage(chatId, "⏳ <b>Booting Core...</b> Try again in 1s.", { parse_mode: 'HTML' });
+
     if (data === "cycle_risk") {
         const levels = ["LOW", "MEDIUM", "MAX"];
         SYSTEM.risk = levels[(levels.indexOf(SYSTEM.risk) + 1) % levels.length];
