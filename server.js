@@ -23,36 +23,41 @@ const MIN_RESERVE = 5.0;
 let lastBinanceUpdate = Date.now();
 // ------------------------
 
-// 1. Overwrite checkGlobalArb (Core logic @ line 164 remains untouched)
+// 1. Overwrite checkGlobalArb (Late-Binding fixes ReferenceError)
 checkGlobalArb = async function(chatId) {
     try {
-        const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
-        const solPrice = solPriceRes.data.outAmount / 1e6;
-        const delta = ((SYSTEM.lastBinancePrice - solPrice) / solPrice) * 100;
-        lastBinanceUpdate = Date.now(); 
+        if (typeof SYSTEM !== 'undefined') {
+            if (!SYSTEM.volBuffer) SYSTEM.volBuffer = []; // Safe init
+            
+            const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
+            const solPrice = solPriceRes.data.outAmount / 1e6;
+            const delta = ((SYSTEM.lastBinancePrice - solPrice) / solPrice) * 100;
+            
+            lastBinanceUpdate = Date.now(); 
 
-        // Safely initialize volBuffer on the fly
-        if (!SYSTEM.volBuffer) SYSTEM.volBuffer = [];
-        
-        SYSTEM.volBuffer.push(Math.abs(delta));
-        if (SYSTEM.volBuffer.length > 30) SYSTEM.volBuffer.shift();
-        const marketStress = SYSTEM.volBuffer.reduce((a, b) => a + b, 0) / SYSTEM.volBuffer.length;
-        const dynThreshold = Math.max(0.40, marketStress * 1.2);
+            SYSTEM.volBuffer.push(Math.abs(delta));
+            if (SYSTEM.volBuffer.length > 30) SYSTEM.volBuffer.shift();
+            const marketStress = SYSTEM.volBuffer.reduce((a, b) => a + b, 0) / SYSTEM.volBuffer.length;
+            const dynThreshold = Math.max(0.40, marketStress * 1.2);
 
-        if (Math.abs(delta) > dynThreshold) {
-            console.log(`[EXECUTE] Delta: ${delta.toFixed(3)}% | Threshold: ${dynThreshold.toFixed(3)}%`.green.bold);
-            return await executeAggressiveSolRotation(chatId, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "GLOBAL-ARB");
+            if (Math.abs(delta) > dynThreshold) {
+                console.log(`[EXECUTE] Delta: ${delta.toFixed(3)}% | Threshold: ${dynThreshold.toFixed(3)}%`.green.bold);
+                return await executeAggressiveSolRotation(chatId, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "GLOBAL-ARB");
+            }
         }
     } catch (e) { }
 };
 
-// 2. Heartbeat Monitor
+// 2. Heartbeat Monitor (Runs every 10 seconds)
 setInterval(() => {
-    if (typeof SYSTEM === 'undefined' || !SYSTEM.autoPilot) return;
-    const silenceDuration = (Date.now() - lastBinanceUpdate) / 1000;
-    if (silenceDuration > 15) {
-        if (activeChatId) bot.sendMessage(activeChatId, `⚠️ <b>FEED DISRUPTION</b>\nPrice feed silent for <code>${silenceDuration.toFixed(0)}s</code>.`, { parse_mode: 'HTML' });
-        lastBinanceUpdate = Date.now(); 
+    if (typeof SYSTEM !== 'undefined' && SYSTEM.autoPilot) {
+        const silenceDuration = (Date.now() - lastBinanceUpdate) / 1000;
+        if (silenceDuration > 15) {
+            if (activeChatId) {
+                bot.sendMessage(activeChatId, `⚠️ <b>FEED DISRUPTION</b>\nPrice feed silent for <code>${silenceDuration.toFixed(0)}s</code>.`, { parse_mode: 'HTML' });
+            }
+            lastBinanceUpdate = Date.now(); 
+        }
     }
 }, 10000);
 
@@ -65,28 +70,37 @@ async function runAutoSweep(chatId) {
         const solBalance = balance / LAMPORTS_PER_SOL;
         const sweepAmount = solBalance - MIN_RESERVE;
         if (sweepAmount >= PROFIT_THRESHOLD) {
-            const transaction = new Transaction().add(SystemProgram.transfer({ fromPubkey: solWallet.publicKey, toPubkey: new PublicKey(COLD_WALLET_ADDRESS), lamports: Math.floor(sweepAmount * LAMPORTS_PER_SOL) - 5000 }));
+            const transaction = new Transaction().add(
+                SystemProgram.transfer({
+                    fromPubkey: solWallet.publicKey,
+                    toPubkey: new PublicKey(COLD_WALLET_ADDRESS),
+                    lamports: Math.floor(sweepAmount * LAMPORTS_PER_SOL) - 5000,
+                })
+            );
             const signature = await conn.sendTransaction(transaction, [solWallet]);
             bot.sendMessage(chatId, `🛡️ <b>PROFIT SECURED</b>\n💰 <code>${sweepAmount.toFixed(4)} SOL</code> moved to Vault.`, { parse_mode: 'HTML' });
         }
     } catch (e) { }
 }
 
-// 4. Shadow UI/Callbacks
 const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
 const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
 
-getDashboardMarkup = () => ({
-    reply_markup: {
-        inline_keyboard: [
-            [{ text: (typeof SYSTEM !== 'undefined' && SYSTEM.autoPilot) ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
-            [{ text: `💰 AMT: ${(typeof SYSTEM !== 'undefined') ? SYSTEM.tradeAmount : '0.1'}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
-            [{ text: `⚠️ RISK: ${RISK_LABELS[(typeof SYSTEM !== 'undefined') ? SYSTEM.risk : 'MAX']}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${TERM_LABELS[(typeof SYSTEM !== 'undefined') ? SYSTEM.mode : 'SHORT']}`, callback_data: "cycle_mode" }],
-            [{ text: (typeof SYSTEM !== 'undefined' && SYSTEM.atomicOn) ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: (typeof SYSTEM !== 'undefined' && SYSTEM.flashOn) ? "⚡ FLASH: ON" : "⚡ FLASH: OFF", callback_data: "tg_flash" }],
-            [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }, { text: "🏦 WITHDRAW (USDC)", callback_data: "cmd_withdraw" }]
-        ]
-    }
-});
+// 4. Overwrite Dashboard Markup
+getDashboardMarkup = () => {
+    const isInit = typeof SYSTEM !== 'undefined';
+    return {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: (isInit && SYSTEM.autoPilot) ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
+                [{ text: `💰 AMT: ${isInit ? SYSTEM.tradeAmount : '0.1'}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
+                [{ text: `⚠️ RISK: ${RISK_LABELS[isInit ? SYSTEM.risk : 'MAX']}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${TERM_LABELS[isInit ? SYSTEM.mode : 'SHORT']}`, callback_data: "cycle_mode" }],
+                [{ text: (isInit && SYSTEM.atomicOn) ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: (isInit && SYSTEM.flashOn) ? "⚡ FLASH: ON" : "⚡ FLASH: OFF", callback_data: "tg_flash" }],
+                [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }, { text: "🏦 WITHDRAW (USDC)", callback_data: "cmd_withdraw" }]
+            ]
+        }
+    };
+};
 
 bot.on('callback_query', async (query) => {
     const { data, message, id } = query;
@@ -95,8 +109,7 @@ bot.on('callback_query', async (query) => {
     if (data === "cmd_withdraw") return bot.sendMessage(chatId, "🏦 <b>WITHDRAWAL</b>\nSend: <code>/payout [ADDRESS]</code>", { parse_mode: 'HTML' });
     if (data === "cmd_status") { runAutoSweep(chatId); return runStatusDashboard(chatId); }
     
-    // Safety check for initialized system
-    if (typeof SYSTEM === 'undefined') return bot.sendMessage(chatId, "⏳ <b>Booting Core...</b> Try again in 1s.", { parse_mode: 'HTML' });
+    if (typeof SYSTEM === 'undefined') return;
 
     if (data === "cycle_risk") {
         const levels = ["LOW", "MEDIUM", "MAX"];
@@ -297,118 +310,3 @@ async function verifyOmniTruth(chatId, netKey) {
         return true;
     } catch (e) { return false; }
 }
-
-bot.onText(/\/(start|menu)/, (msg) => {
-    activeChatId = msg.chat.id;
-    startGlobalUltimatum(activeChatId);
-    bot.sendMessage(msg.chat.id, "<b>⚔️ APEX OMNI-MASTER v9076</b>\nMulti-Chain Radar Active.", { parse_mode: 'HTML', ...getDashboardMarkup() });
-});
-
-bot.onText(/\/connect (.+)/, async (msg, match) => {
-    try {
-        const seed = await bip39.mnemonicToSeed(match[1].trim());
-        const hex = seed.toString('hex');
-        solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", hex).key);
-        evmWallet = ethers.Wallet.fromPhrase(match[1].trim());
-        bot.sendMessage(msg.chat.id, `✅ <b>SYNCED:</b> <code>${solWallet.publicKey.toString()}</code>`, { parse_mode: 'HTML' });
-    } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>FAILED</b>"); }
-});
-
-async function startNetworkSniper(chatId, netKey) {
-    while (SYSTEM.autoPilot) {
-        try {
-            if (!SYSTEM.isLocked[netKey]) {
-                const signal = await runNeuralSignalScan(netKey);
-                if (signal && signal.tokenAddress) {
-                    if (await verifySignalIntegrity(signal.tokenAddress, netKey) && await verifyOmniTruth(chatId, netKey)) {
-                        SYSTEM.isLocked[netKey] = true;
-                        const res = (netKey === 'SOL')
-                            ? await executeAggressiveSolRotation(chatId, signal.tokenAddress, signal.symbol)
-                            : await executeEvmContract(chatId, netKey, signal.tokenAddress);
-                        if (res) SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
-                        SYSTEM.isLocked[netKey] = false;
-                    }
-                }
-            }
-            await new Promise(r => setTimeout(r, 400));
-        } catch (e) { SYSTEM.isLocked[netKey] = false; await new Promise(r => setTimeout(r, 10000)); }
-    }
-}
-
-async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
-    let rpcIdx = 0;
-    while (rpcIdx < NETWORKS.SOL.endpoints.length) {
-        try {
-            const conn = new Connection(NETWORKS.SOL.endpoints[rpcIdx], 'confirmed');
-            const amtMultiplier = (symbol.includes('ARB') || symbol.includes('FAST')) ? 100 : 1;
-            const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL * amtMultiplier);
-            const quote = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${targetToken}&amount=${amt}&slippageBps=50`);
-            const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, { quoteResponse: quote.data, userPublicKey: solWallet.publicKey.toString(), prioritizationFeeLamports: "auto" })).data;
-            const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
-            tx.sign([solWallet]);
-            const res = await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[Buffer.from(tx.serialize()).toString('base64')]] });
-            if (res.data.result) {
-                bot.sendMessage(chatId, `💰 <b>SUCCESS:</b> $${symbol} at Slot #0.`);
-                setTimeout(async () => {
-                    const sigs = await new Connection(NETWORKS.SOL.endpoints[0]).getSignaturesForAddress(solWallet.publicKey, { limit: 1 });
-                    if (sigs[0]) trackTradePnL(sigs[0].signature, chatId, symbol);
-                }, 4000);
-                return true;
-            }
-            return false;
-        } catch (e) { rpcIdx++; }
-    }
-    return false;
-}
-
-async function executeEvmContract(chatId, netKey, addr) {
-    try {
-        const net = NETWORKS[netKey];
-        const wallet = evmWallet.connect(new JsonRpcProvider(net.rpc));
-        const tx = await wallet.sendTransaction({ to: addr, value: ethers.parseEther(SYSTEM.tradeAmount), gasLimit: 250000 });
-        await tx.wait();
-        return true;
-    } catch (e) { return false; }
-}
-
-async function runNeuralSignalScan(netKey) {
-    try {
-        const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
-        const chainMap = { 'SOL': 'solana', 'ETH': 'ethereum', 'BASE': 'base', 'BSC': 'bsc', 'ARB': 'arbitrum' };
-        const match = res.data.find(t => t.chainId === chainMap[netKey] && !SYSTEM.lastTradedTokens[t.tokenAddress]);
-        return match ? { symbol: match.symbol, tokenAddress: match.tokenAddress } : null;
-    } catch (e) { return null; }
-}
-
-function runStatusDashboard(chatId) {
-    const delta = ((SYSTEM.lastBinancePrice - (SYSTEM.lastCheckPrice || SYSTEM.lastBinancePrice)) / (SYSTEM.lastCheckPrice || 1)) * 100;
-    const mood = getMarketMood(delta);
-    const estEarnings = (parseFloat(SYSTEM.tradeAmount) * 0.0085 * CAD_RATES.SOL).toFixed(2);
-   
-    bot.sendMessage(chatId,
-        `📊 <b>OMNI LIVE STATUS</b>\n\n` +
-        `🛰️ <b>Market Mood:</b> ${mood}\n` +
-        `📉 <b>Global Delta:</b> <code>${delta.toFixed(3)}%</code>\n\n` +
-        `💰 <b>Size:</b> <code>${SYSTEM.tradeAmount} SOL</code>\n` +
-        `💎 <b>Est. Net/Trade:</b> <code>~$${estEarnings} CAD</code>\n\n` +
-        `🛡️ <b>Shields:</b> ${SYSTEM.atomicOn ? 'ATOMIC' : 'RAW'}\n` +
-        `⚡ <b>Radar:</b> ${SYSTEM.shredSpeed ? 'Geyser gRPC' : 'Standard'}`,
-        { parse_mode: 'HTML' });
-}
-
-http.createServer((req, res) => res.end("v9076 READY")).listen(8080);
-bot.onText(/\/status/, (msg) => runStatusDashboard(msg.chat.id));
-
-bot.onText(/\/amount (.+)/, (msg, match) => {
-    const value = match[1];
-    if(!isNaN(value) && parseFloat(value) > 0) {
-        SYSTEM.tradeAmount = value;
-        bot.sendMessage(msg.chat.id, `⚙️ <b>AMT OVERRIDE:</b> Size set to <code>${value}</code>`, { parse_mode: 'HTML' });
-    }
-});
-
-bot.on('message', (msg) => {
-    if (msg.text && msg.text.startsWith('/connect')) {
-        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
-    }
-});
