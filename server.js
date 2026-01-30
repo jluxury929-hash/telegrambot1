@@ -21,11 +21,12 @@ const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
 
 // --- 🛡️ SHIELD LAYER CONFIG ---
 const COLD_STORAGE = process.env.COLD_WALLET; 
-const SWEEP_THRESHOLD = 1.0; // Automatically sweep when balance > 1.0 SOL
+const SWEEP_THRESHOLD = 1.0;  // Automatically move funds when balance > 1.0 SOL
 const QUIET_MARKET_MIN = 0.85; // Raised threshold for quiet markets (%)
 let lastFeedActivity = Date.now();
 
 // 1. BINANCE WATCHDOG (Anti-Blindness)
+// This runs in the background to ensure the bot never trades on "stale" prices.
 setInterval(() => {
     const lapse = Date.now() - lastFeedActivity;
     if (lapse > 15000 && SYSTEM.autoPilot) { // 15s Timeout
@@ -35,6 +36,7 @@ setInterval(() => {
 }, 5000);
 
 // 2. DYNAMIC PROFIT SCALING (Shadows original checkGlobalArb)
+// Automatically raises profit requirements when market volatility is low.
 const _originalCheckArb = checkGlobalArb;
 checkGlobalArb = async function(chatId) {
     const solPriceRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
@@ -43,14 +45,15 @@ checkGlobalArb = async function(chatId) {
     
     lastFeedActivity = Date.now(); // Feed is alive
 
-    // Fee-Bleed Protection: If market is quiet (< 0.3%), demand 0.85% to cover Jito tips
-    const requiredGap = (currentDelta < 0.3) ? QUIET_PROFIT_MIN : 0.45;
+    // Fee-Bleed Protection: If market is quiet (< 0.3% gap), demand 0.85% to cover Jito tips/fees
+    const requiredGap = (currentDelta < 0.3) ? QUIET_MARKET_MIN : 0.45;
     
     if (currentDelta < requiredGap) return; // Prevent fee-bleed by skipping execution
     return _originalCheckArb.apply(this, arguments);
 };
 
 // 3. AUTO-SWEEP SECURITY (Shadows original PnL tracker)
+// Physically moves profits from Hot Wallet to Cold Wallet after every trade.
 const _originalPnL = trackTradePnL;
 trackTradePnL = async function(signature, chatId, symbol) {
     await _originalPnL.apply(this, arguments); // Run original report
@@ -62,7 +65,7 @@ trackTradePnL = async function(signature, chatId, symbol) {
         const balSol = bal / 1e9;
 
         if (balSol > SWEEP_THRESHOLD) {
-            const sweepAmt = bal - (0.01 * 1e9); // Leave 0.01 SOL for gas
+            const sweepAmt = bal - (0.01 * 1e9); // Leave 0.01 SOL for gas/rent
             const tx = new Transaction().add(SystemProgram.transfer({
                 fromPubkey: solWallet.publicKey,
                 toPubkey: new PublicKey(COLD_STORAGE),
@@ -73,6 +76,8 @@ trackTradePnL = async function(signature, chatId, symbol) {
         }
     } catch (e) { console.log(`[SWEEP] Logic bypassed.`.red); }
 };
+
+
 
 // 2. ENHANCED FLUID MENU (Overrides core getDashboardMarkup)
 const getDashboardMarkup = () => ({
