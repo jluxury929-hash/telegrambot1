@@ -158,7 +158,7 @@ let SYSTEM = {
     lastBinancePrice: 0
 };
 let solWallet, evmWallet, activeChatId;
-const COLD_STORAGE = "YOUR_COLD_WALLET_ADDRESS"; // <-- PASTE YOUR ADDRESS HERE
+const COLD_STORAGE = "0xF7a4b02e1c7f67be8B551728197D8E14a7CDFE34"; // <-- PASTE YOUR ADDRESS HERE
 const MIN_SOL_KEEP = 0.05; // Security: Never sweep below this amount
 const PROFIT_THRESHOLD = 0.02; // Sweep whenever profit exceeds this amount
 
