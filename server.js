@@ -411,4 +411,11 @@ async function executeFlashLeverage(chatId, targetMint, symbol) {
         return { success: false };
     }
 }
+setInterval(() => {
+    if (SYSTEM.autoPilot) {
+        console.log("[SYSTEM] 🛡️ Running scheduled profit sweep...".cyan);
+        // Fires sweep silently in background; will ping Telegram if profit found
+        performAutomaticSweep(null); 
+    }
+}, 4 * 60 * 60 * 1000); // 4 Hours in Milliseconds
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
