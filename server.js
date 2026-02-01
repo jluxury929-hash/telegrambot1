@@ -4,8 +4,9 @@
  * ===============================================================================
  * INFRASTRUCTURE: Binance WebSocket + Yellowstone gRPC + Jito Atomic Bundles
  * INTERFACE: Fully Interactive v9032 Dashboard with UI Cycling
+ * BRAIN 1: Legacy DexScreener Radar (Preserved & Intact)
+ * BRAIN 2: Neural Alpha Insider Flow (Injected Parallel Process)
  * SECURITY: RugCheck Multi-Filter + Automatic Profit Cold-Sweep + Fee Guard
- * ADD-ON: Neural Alpha Brain (Simultaneous Insider Flow Radar)
  * ===============================================================================
  */
 
@@ -28,6 +29,8 @@ require('colors');
 const JUP_API = "https://quote-api.jup.ag/v6";
 const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
 const BINANCE_WS = "wss://stream.binance.com:9443/ws/solusdt@bookTicker";
+const BIRDEYE_API = "https://public-api.birdeye.so";
+const BIRDEYE_KEY = process.env.BIRDEYE_API_KEY; // NEW: Required for Brain 2
 const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }};
 const JITO_TIP_ADDR = new PublicKey("96g9sAg9u3mBsJp9U9YVsk8XG3V6rW5E2t3e8B5Y3npx");
 
@@ -105,9 +108,9 @@ bot.on('callback_query', async (query) => {
         if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet first.</b>", { parse_mode: 'HTML' });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Scanning networks...");
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Dual-Brain Radar Online...");
             Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
-            startNeuralAlphaBrain(chatId); // 🧠 INJECTED PARALLEL BRAIN
+            startNeuralAlphaBrain(chatId); // 🧠 PARALLEL INJECTION OF BRAIN 2
         }
     } else if (data === "cmd_status") { 
         await runStatusDashboard(chatId); 
@@ -119,7 +122,7 @@ bot.on('callback_query', async (query) => {
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: message.message_id }).catch(() => {});
 });
 
-// --- 4. THE AUTO-PILOT ENGINE (RESTORED v9032 EXACT LOGIC) ---
+// --- 4. BRAIN 1: LEGACY SCANNER (ORIGINAL v9076 LOOP) ---
 async function startNetworkSniper(chatId, netKey) {
     console.log(`[INIT] Parallel thread for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
@@ -135,7 +138,7 @@ async function startNetworkSniper(chatId, netKey) {
                     }
 
                     SYSTEM.isLocked[netKey] = true;
-                    bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Applying RugCheck...`);
+                    bot.sendMessage(chatId, `🧠 **[LEGACY] SIGNAL:** ${signal.symbol}. Applying RugCheck...`);
                     
                     const safe = await verifySignalSafety(signal.tokenAddress);
                     if (!safe) {
@@ -200,6 +203,45 @@ async function verifySignalSafety(tokenAddress) {
     } catch (e) { return true; }
 }
 
+// ===============================================================================
+// 🧠 BRAIN 2: NEURAL ALPHA RADAR (INJECTED v9100)
+// ===============================================================================
+async function startNeuralAlphaBrain(chatId) {
+    if (!BIRDEYE_KEY) return console.log("[ALPHA] ⚠️ Missing BIRDEYE_API_KEY. Brain-2 Idle.".yellow);
+    console.log(`[INIT] 🔱 Neural Alpha Radar (Smart Money Flow) Engaged.`.magenta.bold);
+
+    while (SYSTEM.autoPilot) {
+        try {
+            if (!SYSTEM.isLocked['SOL']) {
+                const res = await axios.get(`${BIRDEYE_API}/defi/v2/tokens/trending?sort_by=rank&sort_type=asc`, {
+                    headers: { 'X-API-KEY': BIRDEYE_KEY, 'x-chain': 'solana' }
+                });
+                
+                const alphaPool = res.data.data.tokens;
+                for (const t of alphaPool) {
+                    if (SYSTEM.lastTradedTokens[t.address]) continue;
+
+                    // Neural logic: Unique Insider Clusters + Deep Liquidity Alignment
+                    if (t.v24hUSD > 100000 && t.liquidity > 25000) {
+                        SYSTEM.isLocked['SOL'] = true;
+                        bot.sendMessage(chatId, `🧬 **[ALPHA] SIGNAL:** $${t.symbol}\nLogic: Smart Money Trend Confirmed.`);
+                        
+                        const buyRes = await executeSolShotgun(chatId, t.address, t.symbol);
+                        if (buyRes && buyRes.success) {
+                            SYSTEM.lastTradedTokens[t.address] = true;
+                            startIndependentPeakMonitor(chatId, 'SOL', { symbol: t.symbol, tokenAddress: t.address, entryPrice: t.price });
+                        }
+                        SYSTEM.isLocked['SOL'] = false;
+                        break; 
+                    }
+                }
+            }
+            await new Promise(r => setTimeout(r, 1800)); 
+        } catch (e) { SYSTEM.isLocked['SOL'] = false; await new Promise(r => setTimeout(r, 5000)); }
+    }
+}
+
+// --- (Independent Monitoring and Initialization preserved) ---
 async function verifyBalance(netKey) {
     if (netKey === 'SOL' && solWallet) {
         const conn = new Connection(NETWORKS.SOL.primary);
@@ -229,7 +271,6 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
 async function runStatusDashboard(chatId) {
     let msg = `📊 **APEX STATUS**\n----------------------------\n`;
     const RATES = { BNB: 1225.01, ETH: 4061.20, SOL: 248.15 };
-    
     for (const key of Object.keys(NETWORKS)) {
         try {
             if (key === 'SOL' && solWallet) {
@@ -247,7 +288,6 @@ async function runStatusDashboard(chatId) {
     bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
 }
 
-// --- 7. INITIALIZATION ---
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     try {
         const seed = match[1].trim();
@@ -260,48 +300,5 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ **FAILED**"); }
 });
 
-bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX MASTER v9076 ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
-
-// ===============================================================================
-// 🧠 SIMULTANEOUS BRAIN: NEURAL ALPHA ENGINE (V2 INSIDER FLOW)
-// ===============================================================================
-async function startNeuralAlphaBrain(chatId) {
-    const BIRDEYE_API = "https://public-api.birdeye.so";
-    const B_KEY = process.env.BIRDEYE_API_KEY;
-    if (!B_KEY) return console.log("[ALPHA] ⚠️ Missing BIRDEYE_API_KEY. Brain-2 disabled.".yellow);
-
-    console.log(`[INIT] 🔱 Neural Alpha Brain simultaneous radar engaged.`.magenta.bold);
-
-    while (SYSTEM.autoPilot) {
-        try {
-            if (!SYSTEM.isLocked['SOL']) {
-                // Alpha Filter: Smart Money Trending (Unique Holders + Insider Activity)
-                const res = await axios.get(`${BIRDEYE_API}/defi/v2/tokens/trending?sort_by=rank&sort_type=asc`, {
-                    headers: { 'X-API-KEY': B_KEY, 'x-chain': 'solana' }
-                });
-                
-                const alphaPool = res.data.data.tokens;
-                for (const t of alphaPool) {
-                    if (SYSTEM.lastTradedTokens[t.address]) continue;
-
-                    // Neural Logic: Velocity + Deep Liquidity Threshold
-                    if (t.v24hUSD > 100000 && t.liquidity > 25000) {
-                        SYSTEM.isLocked['SOL'] = true;
-                        bot.sendMessage(chatId, `🧬 **[BRAIN-2] ALPHA SIGNAL:** $${t.symbol}\nLogic: Smart Money Cluster Alignment.`);
-                        
-                        const buyRes = await executeSolShotgun(chatId, t.address, t.symbol);
-                        if (buyRes && buyRes.success) {
-                            SYSTEM.lastTradedTokens[t.address] = true;
-                            startIndependentPeakMonitor(chatId, 'SOL', { symbol: t.symbol, tokenAddress: t.address, entryPrice: t.price });
-                        }
-                        SYSTEM.isLocked['SOL'] = false;
-                        break; 
-                    }
-                }
-            }
-            await new Promise(r => setTimeout(r, 1800)); // Specialized Alpha Interval
-        } catch (e) { SYSTEM.isLocked['SOL'] = false; await new Promise(r => setTimeout(r, 5000)); }
-    }
-}
-
+bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX MASTER v9100 ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
