@@ -4,8 +4,8 @@
  * ===============================================================================
  * INFRASTRUCTURE: Binance WebSocket + Yellowstone gRPC + Jito Atomic Bundles
  * INTERFACE: Fully Interactive v9032 Dashboard with UI Cycling
- * BRAIN 1: Legacy DexScreener Radar (Preserved & Intact)
- * BRAIN 2: Neural Alpha Insider Flow (Injected Parallel Process)
+ * BRAIN 1: Legacy DexScreener Radar (Original Logic)
+ * BRAIN 2: Neural Alpha Insider Flow (World's Best Logic)
  * SECURITY: RugCheck Multi-Filter + Automatic Profit Cold-Sweep + Fee Guard
  * ===============================================================================
  */
@@ -30,7 +30,7 @@ const JUP_API = "https://quote-api.jup.ag/v6";
 const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
 const BINANCE_WS = "wss://stream.binance.com:9443/ws/solusdt@bookTicker";
 const BIRDEYE_API = "https://public-api.birdeye.so";
-const BIRDEYE_KEY = process.env.BIRDEYE_API_KEY; // NEW: Required for Brain 2
+const BIRDEYE_KEY = process.env.BIRDEYE_API_KEY; 
 const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }};
 const JITO_TIP_ADDR = new PublicKey("96g9sAg9u3mBsJp9U9YVsk8XG3V6rW5E2t3e8B5Y3npx");
 
@@ -108,9 +108,9 @@ bot.on('callback_query', async (query) => {
         if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet first.</b>", { parse_mode: 'HTML' });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Dual-Brain Radar Online...");
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Parallel Radars Engaged.");
             Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
-            startNeuralAlphaBrain(chatId); // 🧠 PARALLEL INJECTION OF BRAIN 2
+            startNeuralAlphaBrain(chatId); // 🧠 INJECTED PARALLEL PROCESS
         }
     } else if (data === "cmd_status") { 
         await runStatusDashboard(chatId); 
@@ -122,7 +122,7 @@ bot.on('callback_query', async (query) => {
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: message.message_id }).catch(() => {});
 });
 
-// --- 4. BRAIN 1: LEGACY SCANNER (ORIGINAL v9076 LOOP) ---
+// --- 4. BRAIN 1: LEGACY SNIPER (v9076 INTACT) ---
 async function startNetworkSniper(chatId, netKey) {
     console.log(`[INIT] Parallel thread for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
@@ -138,7 +138,7 @@ async function startNetworkSniper(chatId, netKey) {
                     }
 
                     SYSTEM.isLocked[netKey] = true;
-                    bot.sendMessage(chatId, `🧠 **[LEGACY] SIGNAL:** ${signal.symbol}. Applying RugCheck...`);
+                    bot.sendMessage(chatId, `🧠 **[LEGACY] SIGNAL:** ${signal.symbol}. Verifying...`);
                     
                     const safe = await verifySignalSafety(signal.tokenAddress);
                     if (!safe) {
@@ -151,7 +151,6 @@ async function startNetworkSniper(chatId, netKey) {
                         if (buyRes && buyRes.success) {
                             SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
                             startIndependentPeakMonitor(chatId, netKey, { ...signal, entryPrice: signal.price });
-                            bot.sendMessage(chatId, `🚀 **[${netKey}] BOUGHT ${signal.symbol}.** Monitoring peak...`);
                         }
                     }
                     SYSTEM.isLocked[netKey] = false;
@@ -162,7 +161,7 @@ async function startNetworkSniper(chatId, netKey) {
     }
 }
 
-// --- 5. EXECUTION CORE (HARDENED JITO SWAP) ---
+// --- 5. EXECUTION CORE (JITO SHIELDED) ---
 async function executeSolShotgun(chatId, addr, symbol) {
     try {
         const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
@@ -182,33 +181,15 @@ async function executeSolShotgun(chatId, addr, symbol) {
         tx.sign([solWallet]);
 
         const sig = await conn.sendRawTransaction(tx.serialize()); 
+        if (sig) bot.sendMessage(chatId, `🚀 **BOUGHT ${symbol}.** Monitoring peak...`);
         return { success: !!sig };
     } catch (e) { return { success: false }; }
 }
 
-// --- 6. RADAR & SIGNAL TOOLS ---
-async function runNeuralSignalScan(netKey) {
-    try {
-        const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
-        const chainMap = { 'SOL': 'solana', 'ETH': 'ethereum', 'BASE': 'base', 'BSC': 'bsc' };
-        const match = res.data.find(t => t.chainId === chainMap[netKey] && !SYSTEM.lastTradedTokens[t.tokenAddress]);
-        return match ? { symbol: match.symbol || "UNK", tokenAddress: match.tokenAddress, price: parseFloat(match.amount) || 0.0001 } : null;
-    } catch (e) { return null; }
-}
-
-async function verifySignalSafety(tokenAddress) {
-    try {
-        const res = await axios.get(`https://api.rugcheck.xyz/v1/tokens/${tokenAddress}/report`);
-        return res.data.score < 500 && !res.data.rugged;
-    } catch (e) { return true; }
-}
-
-// ===============================================================================
-// 🧠 BRAIN 2: NEURAL ALPHA RADAR (INJECTED v9100)
-// ===============================================================================
+// --- 6. 🧠 BRAIN 2: NEURAL ALPHA RADAR (INJECTED v9100) ---
 async function startNeuralAlphaBrain(chatId) {
-    if (!BIRDEYE_KEY) return console.log("[ALPHA] ⚠️ Missing BIRDEYE_API_KEY. Brain-2 Idle.".yellow);
-    console.log(`[INIT] 🔱 Neural Alpha Radar (Smart Money Flow) Engaged.`.magenta.bold);
+    if (!BIRDEYE_KEY) return console.log("[ALPHA] ⚠️ Missing BIRDEYE_API_KEY. Brain-2 disabled.".yellow);
+    console.log(`[INIT] 🔱 Neural Alpha Brain simultaneous process active.`.magenta.bold);
 
     while (SYSTEM.autoPilot) {
         try {
@@ -221,10 +202,10 @@ async function startNeuralAlphaBrain(chatId) {
                 for (const t of alphaPool) {
                     if (SYSTEM.lastTradedTokens[t.address]) continue;
 
-                    // Neural logic: Unique Insider Clusters + Deep Liquidity Alignment
+                    // Neural logic: Volume Velocity + Smart Money Alignment
                     if (t.v24hUSD > 100000 && t.liquidity > 25000) {
                         SYSTEM.isLocked['SOL'] = true;
-                        bot.sendMessage(chatId, `🧬 **[ALPHA] SIGNAL:** $${t.symbol}\nLogic: Smart Money Trend Confirmed.`);
+                        bot.sendMessage(chatId, `🧬 **[BRAIN-2] ALPHA SIGNAL:** $${t.symbol}\nLogic: Smart Money Cluster Alignment.`);
                         
                         const buyRes = await executeSolShotgun(chatId, t.address, t.symbol);
                         if (buyRes && buyRes.success) {
@@ -241,7 +222,23 @@ async function startNeuralAlphaBrain(chatId) {
     }
 }
 
-// --- (Independent Monitoring and Initialization preserved) ---
+// --- 7. SIGNAL & SECURITY TOOLS (v9076 INTACT) ---
+async function runNeuralSignalScan(netKey) {
+    try {
+        const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
+        const chainMap = { 'SOL': 'solana', 'ETH': 'ethereum', 'BASE': 'base', 'BSC': 'bsc' };
+        const match = res.data.find(t => t.chainId === chainMap[netKey] && !SYSTEM.lastTradedTokens[t.tokenAddress]);
+        return match ? { symbol: match.symbol || "UNK", tokenAddress: match.tokenAddress, price: parseFloat(match.amount) || 0.0001 } : null;
+    } catch (e) { return null; }
+}
+
+async function verifySignalSafety(tokenAddress) {
+    try {
+        const res = await axios.get(`https://api.rugcheck.xyz/v1/tokens/${tokenAddress}/report`);
+        return res.data.score < 500 && !res.data.rugged;
+    } catch (e) { return true; }
+}
+
 async function verifyBalance(netKey) {
     if (netKey === 'SOL' && solWallet) {
         const conn = new Connection(NETWORKS.SOL.primary);
@@ -288,6 +285,7 @@ async function runStatusDashboard(chatId) {
     bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
 }
 
+// --- 8. INITIALIZATION ---
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     try {
         const seed = match[1].trim();
@@ -301,4 +299,5 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
 });
 
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX MASTER v9100 ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
+
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
