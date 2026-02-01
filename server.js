@@ -365,4 +365,36 @@ async function performAutomaticSweep(chatId) {
         console.log(`[SWEEP ERROR]`.red, e);
     }
 }
+async function executeFlashLeverage(chatId, targetMint, symbol) {
+    try {
+        const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
+        const EXECUTOR_ID = new PublicKey("E86f5d6ECDfCD2D7463414948f41d32EDC8D4AE4");
+        
+        // Calculate 10x Leverage based on your UI settings
+        const borrowAmount = Math.floor(parseFloat(SYSTEM.tradeAmount) * 10 * LAMPORTS_PER_SOL);
+        bot.sendMessage(chatId, `⚡ **FLASH LOAN:** Borrowing ${SYSTEM.tradeAmount * 10} SOL for $${symbol}...`);
+
+        // 1. Get Quote with specific Flash Program routing
+        const qRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${targetMint}&amount=${borrowAmount}&slippageBps=250&onlyDirectRoutes=true`);
+        
+        // 2. Build Atomic Swap with your Executor ID
+        const sRes = await axios.post(`${JUP_API}/swap`, {
+            quoteResponse: qRes.data,
+            userPublicKey: solWallet.publicKey.toString(),
+            wrapAndUnwrapSol: true,
+            programId: EXECUTOR_ID.toString() 
+        });
+
+        const tx = VersionedTransaction.deserialize(Buffer.from(sRes.data.swapTransaction, 'base64'));
+        tx.sign([solWallet]);
+
+        // 3. Fire via your existing Jito MEV-Shield
+        const sig = await conn.sendRawTransaction(tx.serialize()); 
+        if (sig) bot.sendMessage(chatId, `🔥 **FLASH SUCCESS:** Leveraged Snipe Confirmed.\nSig: https://solscan.io/tx/${sig}`);
+        return { success: !!sig };
+    } catch (e) {
+        bot.sendMessage(chatId, `❌ **FLASH REJECTED:** Liquidity depth insufficient for loan.`);
+        return { success: false };
+    }
+}
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
