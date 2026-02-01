@@ -41,7 +41,7 @@ let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'SHORT',
     lastTradedTokens: {}, isLocked: {}, atomicOn: true, flashOn: false,
     jitoTip: 2000000, currentAsset: 'So11111111111111111111111111111111111111112',
-    lastBinancePrice: 0, minLiquidity: 15000, velocityThreshold: 1.8
+    lastBinancePrice: 0, minLiquidity: 15000, velocityThreshold: 1.8,
     highestBalance: 0,
     isWaitingForDrop: false
 };
