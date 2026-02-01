@@ -100,6 +100,10 @@ bot.on('callback_query', async (query) => {
         SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
     } else if (data === "tg_atomic") { 
         SYSTEM.atomicOn = !SYSTEM.atomicOn;
+        } else if (data === "cmd_withdraw") {
+        await bot.sendMessage(chatId, "🛡️ **INITIATING COLD-SWEEP...**");
+        await performAutomaticSweep(chatId);
+        return;
     } else if (data === "cmd_auto") {
         if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet first.</b>", { parse_mode: 'HTML' });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
