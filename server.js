@@ -310,4 +310,55 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
 });
 
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX MASTER v9076 ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
+// --- 🛡️ SECURITY: AUTOMATIC PROFIT COLD-SWEEP ENGINE (v9100) ---
+async function performAutomaticSweep(chatId) {
+    try {
+        if (!solWallet) return bot.sendMessage(chatId, "❌ **ERROR:** No SOL wallet linked.");
+        
+        const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
+        const destPubkey = new PublicKey(COLD_STORAGE);
+        
+        // 1. Get current balance & calculate headroom
+        const balance = await conn.getBalance(solWallet.publicKey);
+        const reserve = MIN_SOL_KEEP * LAMPORTS_PER_SOL; // 0.05 SOL
+        const txFee = 5000; // Standard Solana fee
+
+        const sweepAmount = balance - reserve - txFee;
+
+        // 2. Safety Check: Only sweep if there is actual profit above the reserve
+        if (sweepAmount <= 0) {
+            return bot.sendMessage(chatId, `ℹ️ **SWEEP SKIP:** Balance (${(balance/1e9).toFixed(4)}) is below 0.05 SOL reserve.`);
+        }
+
+        // 3. Build Transfer Instruction
+        const tx = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: solWallet.publicKey,
+                toPubkey: destPubkey,
+                lamports: sweepAmount,
+            })
+        );
+
+        const { blockhash } = await conn.getLatestBlockhash('finalized');
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = solWallet.publicKey;
+        tx.sign(solWallet);
+
+        // 4. Send via Jito Shadow Injection (Private Lane)
+        const sig = await conn.sendRawTransaction(tx.serialize());
+        
+        bot.sendMessage(chatId, 
+            `🏦 **PROFIT SWEEP SUCCESSFUL**\n` +
+            `----------------------------\n` +
+            `Sent: **${(sweepAmount / 1e9).toFixed(4)} SOL**\n` +
+            `Dest: <code>${COLD_STORAGE.slice(0, 8)}...</code>\n` +
+            `Sig: <a href="https://solscan.io/tx/${sig}">View on Solscan</a>`, 
+            { parse_mode: 'HTML', disable_web_page_preview: true }
+        );
+
+    } catch (e) {
+        bot.sendMessage(chatId, "⚠️ **SWEEP FAILED:** Network busy or RPC timeout.");
+        console.log(`[SWEEP ERROR]`.red, e);
+    }
+}
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
