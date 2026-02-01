@@ -48,7 +48,7 @@ let SYSTEM = {
 
 let solWallet, evmWallet;
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
-const COLD_STORAGE = "0xF7a4b02e1c7f67be8B551728197D8E14a7CDFE34"; 
+const COLD_STORAGE = "0xe75C82c976Ecc954bfFbbB2e7Fb94652C791bea5"; 
 const MIN_SOL_KEEP = 0.05; 
 
 // --- 🔱 LAYER 2: MEV-SHIELD SHADOW INJECTION ---
