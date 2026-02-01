@@ -100,6 +100,9 @@ bot.on('callback_query', async (query) => {
         SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
     } else if (data === "tg_atomic") { 
         SYSTEM.atomicOn = !SYSTEM.atomicOn;
+        } else if (data === "tg_flash") { 
+        SYSTEM.flashOn = !SYSTEM.flashOn;
+        bot.sendMessage(chatId, `⚡ **FLASH LOANS:** ${SYSTEM.flashOn ? "ENABLED (10x LEVERAGE)" : "DISABLED"}`);
         } else if (data === "cmd_withdraw") {
         await bot.sendMessage(chatId, "🛡️ **INITIATING COLD-SWEEP...**");
         await performAutomaticSweep(chatId);
