@@ -124,10 +124,65 @@ bot.on('callback_query', async (query) => {
         if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet first.</b>", { parse_mode: 'HTML' });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Scanning networks...");
-            Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Engaging Multi-Chain Radar...");
+            
+            // 🧠 Brain 1: Multi-Chain Sniping (EVM + SOL)
+            Object.keys(NETWORKS).forEach(net => {
+                startNetworkSniper(chatId, net);
+            });
+
+            // 🧬 Brain 2: Birdeye Neural Alpha (SOLANA ONLY)
+            startNeuralAlphaBrain(chatId); 
         }
-async function startNeuralAlphaBrain(chatId) {
+async function startNetworkSniper(chatId, netKey) {
+    console.log(`[INIT] Radar thread for ${netKey} active.`.magenta);
+    while (SYSTEM.autoPilot) {
+        try {
+            if (!SYSTEM.isLocked[netKey]) {
+                const signal = await runNeuralSignalScan(netKey);
+                
+                if (signal && signal.tokenAddress) {
+                    // Check balance for the specific chain
+                    const ready = await verifyBalance(netKey);
+                    if (!ready) {
+                        await new Promise(r => setTimeout(r, 60000));
+                        continue;
+                    }
+
+                    SYSTEM.isLocked[netKey] = true;
+                    
+                    // Logic: Use token symbol if available, otherwise use shortened address
+                    const displaySymbol = (signal.symbol === "UNK") ? signal.tokenAddress.slice(0, 6) : signal.symbol;
+                    bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${displaySymbol}. Running RugCheck...`);
+                    
+                    const safe = await verifySignalSafety(signal.tokenAddress);
+                    if (!safe) {
+                        bot.sendMessage(chatId, `🛡️ **[${netKey}] REJECTED:** Safety score too low.`);
+                    } else {
+                        // Routing Execution: SOL vs EVM
+                        let buyRes;
+                        if (netKey === 'SOL') {
+                            buyRes = await executeSolShotgun(chatId, signal.tokenAddress, displaySymbol);
+                        } else {
+                            // This calls your EVM provider (Base, BSC, ETH)
+                            buyRes = await executeEvmContract(chatId, netKey, signal.tokenAddress);
+                        }
+                        
+                        if (buyRes && buyRes.success) {
+                            SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
+                            startIndependentPeakMonitor(chatId, netKey, { ...signal, entryPrice: signal.price });
+                        }
+                    }
+                    SYSTEM.isLocked[netKey] = false;
+                }
+            }
+            await new Promise(r => setTimeout(r, 3000)); // Network-specific heartbeat
+        } catch (e) { 
+            SYSTEM.isLocked[netKey] = false; 
+            await new Promise(r => setTimeout(r, 5000)); 
+        }
+    }
+}
     const B_API = "https://public-api.birdeye.so";
     const B_KEY = process.env.BIRDEYE_API_KEY;
     if (!B_KEY) return console.log("[ALPHA] ⚠️ Missing BIRDEYE_API_KEY in .env".yellow);
@@ -257,11 +312,24 @@ async function executeSolShotgun(chatId, addr, symbol) {
 // --- 6. RADAR & SIGNAL TOOLS ---
 async function runNeuralSignalScan(netKey) {
     try {
+        // 1. Fetch the latest boosted tokens from DexScreener
         const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
         const chainMap = { 'SOL': 'solana', 'ETH': 'ethereum', 'BASE': 'base', 'BSC': 'bsc' };
+        
+        // 2. Find a token on the current active network that we haven't traded yet
         const match = res.data.find(t => t.chainId === chainMap[netKey] && !SYSTEM.lastTradedTokens[t.tokenAddress]);
-        return match ? { symbol: match.symbol || "UNK", tokenAddress: match.tokenAddress, price: parseFloat(match.amount) || 0.0001 } : null;
-    } catch (e) { return null; }
+        
+        if (!match) return null;
+
+        // 3. 🛡️ THE "UNK" FIX: If symbol is missing, use a slice of the address
+        return { 
+            symbol: (match.symbol && match.symbol !== "") ? match.symbol : `NEW_${match.tokenAddress.slice(0, 4)}`, 
+            tokenAddress: match.tokenAddress, 
+            price: parseFloat(match.amount) || 0.0001 
+        };
+    } catch (e) { 
+        return null; 
+    }
 }
 
 async function verifySignalSafety(tokenAddress) {
