@@ -87,12 +87,13 @@ const getDashboardMarkup = () => {
 };
 
 // --- 3. CALLBACK HANDLER (v9032 UI CYCLING) ---
+// --- 3. CALLBACK HANDLER (v9032 UI CYCLING) ---
 bot.on('callback_query', async (query) => {
     const { data, message, id } = query;
     const chatId = message.chat.id;
     bot.answerCallbackQuery(id).catch(() => {});
     
-// --- 🔔 DYNAMIC NOTIFICATION OBSERVER ---
+    // --- 🔔 DYNAMIC NOTIFICATION OBSERVER ---
     const settingsMap = {
         "cycle_risk": `🛡️ RISK LEVEL: ${SYSTEM.risk}`,
         "cycle_mode": `⏳ TRADE TERM: ${SYSTEM.mode}`,
@@ -113,10 +114,10 @@ bot.on('callback_query', async (query) => {
         SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
     } else if (data === "tg_atomic") { 
         SYSTEM.atomicOn = !SYSTEM.atomicOn;
-        } else if (data === "tg_flash") { 
+    } else if (data === "tg_flash") { 
         SYSTEM.flashOn = !SYSTEM.flashOn;
         bot.sendMessage(chatId, `⚡ **FLASH LOANS:** ${SYSTEM.flashOn ? "ENABLED (10x LEVERAGE)" : "DISABLED"}`);
-      } else if (data === "cmd_withdraw") {
+    } else if (data === "cmd_withdraw") {
         await bot.sendMessage(chatId, "🛡️ **INITIATING SECURE USDC CONVERSION...**");
         await performAutomaticSweep(chatId);
         return;
@@ -124,8 +125,22 @@ bot.on('callback_query', async (query) => {
         if (!solWallet) return bot.sendMessage(chatId, "❌ <b>Connect wallet first.</b>", { parse_mode: 'HTML' });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Engaging Multi-Chain Radar...");
-            
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Engaging Dual-Brain Radar...");
+            Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
+            startNeuralAlphaBrain(chatId); 
+        } else {
+            bot.sendMessage(chatId, "🛑 **AUTO-PILOT DISABLED.** Standby mode.");
+        }
+    } else if (data === "cmd_status") { 
+        await runStatusDashboard(chatId); 
+        return;
+    } else if (data === "cmd_conn") {
+        return bot.sendMessage(chatId, "🔌 <b>Sync Wallet:</b> Send `/connect [mnemonic]`");
+    }
+
+    // Refresh the UI dashboard
+    bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: message.message_id }).catch(() => {});
+});
             // 🧠 Brain 1: Multi-Chain Sniping (EVM + SOL)
             Object.keys(NETWORKS).forEach(net => {
                 startNetworkSniper(chatId, net);
