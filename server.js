@@ -114,8 +114,8 @@ bot.on('callback_query', async (query) => {
         } else if (data === "tg_flash") { 
         SYSTEM.flashOn = !SYSTEM.flashOn;
         bot.sendMessage(chatId, `⚡ **FLASH LOANS:** ${SYSTEM.flashOn ? "ENABLED (10x LEVERAGE)" : "DISABLED"}`);
-        } else if (data === "cmd_withdraw") {
-        await bot.sendMessage(chatId, "🛡️ **INITIATING COLD-SWEEP...**");
+      } else if (data === "cmd_withdraw") {
+        await bot.sendMessage(chatId, "🛡️ **INITIATING SECURE USDC CONVERSION...**");
         await performAutomaticSweep(chatId);
         return;
     } else if (data === "cmd_auto") {
