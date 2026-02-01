@@ -42,6 +42,8 @@ let SYSTEM = {
     lastTradedTokens: {}, isLocked: {}, atomicOn: true, flashOn: false,
     jitoTip: 2000000, currentAsset: 'So11111111111111111111111111111111111111112',
     lastBinancePrice: 0, minLiquidity: 15000, velocityThreshold: 1.8
+    highestBalance: 0,
+    isWaitingForDrop: false
 };
 
 let solWallet, evmWallet;
@@ -328,55 +330,58 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
 });
 
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX MASTER v9076 ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
-// --- 🛡️ SECURITY: AUTOMATIC PROFIT COLD-SWEEP ENGINE (v9100) ---
+
+// --- 🛡️ SECURITY: PEAK-DETECTION USDC SHIELD (v9100) ---
 async function performAutomaticSweep(chatId) {
     try {
-        if (!solWallet) return bot.sendMessage(chatId, "❌ **ERROR:** No SOL wallet linked.");
-        
+        if (!solWallet) return;
         const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
-        const destPubkey = new PublicKey(COLD_STORAGE);
-        
-        // 1. Get current balance & calculate headroom
-        const balance = await conn.getBalance(solWallet.publicKey);
-        const reserve = MIN_SOL_KEEP * LAMPORTS_PER_SOL; // 0.05 SOL
-        const txFee = 5000; // Standard Solana fee
+        const currentBalance = await conn.getBalance(solWallet.publicKey);
+        const reserve = MIN_SOL_KEEP * LAMPORTS_PER_SOL;
 
-        const sweepAmount = balance - reserve - txFee;
-
-        // 2. Safety Check: Only sweep if there is actual profit above the reserve
-        if (sweepAmount <= 0) {
-            return bot.sendMessage(chatId, `ℹ️ **SWEEP SKIP:** Balance (${(balance/1e9).toFixed(4)}) is below 0.05 SOL reserve.`);
+        // 1. Initial Logic: Set the Peak
+        if (!SYSTEM.isWaitingForDrop) {
+            SYSTEM.highestBalance = currentBalance;
+            SYSTEM.isWaitingForDrop = true;
+            bot.sendMessage(chatId, `🚀 **PEAK RADAR ACTIVE.** Tracking profit peak...\nInitial Peak: ${(currentBalance/1e9).toFixed(4)} SOL\nTarget Trigger: **-3% from High**`);
         }
 
-        // 3. Build Transfer Instruction
-        const tx = new Transaction().add(
-            SystemProgram.transfer({
-                fromPubkey: solWallet.publicKey,
-                toPubkey: destPubkey,
-                lamports: sweepAmount,
-            })
-        );
+        // 2. Update Peak if balance goes higher
+        if (currentBalance > SYSTEM.highestBalance) {
+            SYSTEM.highestBalance = currentBalance;
+            console.log(`[RADAR] New Peak Detected: ${(SYSTEM.highestBalance/1e9).toFixed(4)} SOL`.magenta);
+        }
 
-        const { blockhash } = await conn.getLatestBlockhash('finalized');
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = solWallet.publicKey;
-        tx.sign(solWallet);
+        // 3. Mathematical Trigger: Check for 3% Drop
+        const dropThreshold = SYSTEM.highestBalance * 0.97; // 3% drop
+        if (currentBalance <= dropThreshold && currentBalance > reserve) {
+            bot.sendMessage(chatId, `📉 **TRIGGER:** Balance dropped 3% from peak (${~~((SYSTEM.highestBalance - currentBalance)/1e7)/100} SOL). Executing conversion...`);
+            
+            // EXECUTE ACTUAL USDC SWAP (Using your Jupiter logic)
+            const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+            const sweepAmount = currentBalance - reserve - 15000;
+            const qRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${USDC_MINT}&amount=${sweepAmount}&slippageBps=100`);
+            const sRes = await axios.post(`${JUP_API}/swap`, {
+                quoteResponse: qRes.data,
+                userPublicKey: solWallet.publicKey.toString(),
+                destinationTokenAccount: COLD_STORAGE,
+                wrapAndUnwrapSol: true
+            });
+            const tx = VersionedTransaction.deserialize(Buffer.from(sRes.data.swapTransaction, 'base64'));
+            tx.sign([solWallet]);
+            const sig = await conn.sendRawTransaction(tx.serialize());
 
-        // 4. Send via Jito Shadow Injection (Private Lane)
-        const sig = await conn.sendRawTransaction(tx.serialize());
-        
-        bot.sendMessage(chatId, 
-            `🏦 **PROFIT SWEEP SUCCESSFUL**\n` +
-            `----------------------------\n` +
-            `Sent: **${(sweepAmount / 1e9).toFixed(4)} SOL**\n` +
-            `Dest: <code>${COLD_STORAGE.slice(0, 8)}...</code>\n` +
-            `Sig: <a href="https://solscan.io/tx/${sig}">View on Solscan</a>`, 
-            { parse_mode: 'HTML', disable_web_page_preview: true }
-        );
+            bot.sendMessage(chatId, `✅ **PEAK WITHDRAWAL COMPLETE.** Shielded $${(qRes.data.outAmount / 1e6).toFixed(2)} USDC.`);
+            SYSTEM.isWaitingForDrop = false; // Reset for next cycle
+        } else {
+            // 4. Recursive Monitor: Check again in 1 minute
+            console.log(`[WATCH] Current: ${(currentBalance/1e9).toFixed(4)} | Peak: ${(SYSTEM.highestBalance/1e9).toFixed(4)} | Need: < ${(dropThreshold/1e9).toFixed(4)}`.gray);
+            setTimeout(() => performAutomaticSweep(chatId), 60000); 
+        }
 
     } catch (e) {
-        bot.sendMessage(chatId, "⚠️ **SWEEP FAILED:** Network busy or RPC timeout.");
-        console.log(`[SWEEP ERROR]`.red, e);
+        console.log(`[WATCH ERROR]`.red, e.message);
+        setTimeout(() => performAutomaticSweep(chatId), 30000);
     }
 }
 async function executeFlashLeverage(chatId, targetMint, symbol) {
