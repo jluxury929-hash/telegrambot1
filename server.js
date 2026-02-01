@@ -89,6 +89,16 @@ bot.on('callback_query', async (query) => {
     const { data, message, id } = query;
     const chatId = message.chat.id;
     bot.answerCallbackQuery(id).catch(() => {});
+    
+// --- 🔔 DYNAMIC NOTIFICATION OBSERVER ---
+    const settingsMap = {
+        "cycle_risk": `🛡️ RISK LEVEL: ${SYSTEM.risk}`,
+        "cycle_mode": `⏳ TRADE TERM: ${SYSTEM.mode}`,
+        "tg_atomic": `🛡️ ATOMIC TX: ${SYSTEM.atomicOn ? "ENABLED" : "DISABLED"}`,
+        "tg_flash": `⚡ FLASH LOANS: ${SYSTEM.flashOn ? "ENABLED" : "DISABLED"}`
+    };
+    
+    if (settingsMap[data]) bot.sendMessage(chatId, `⚙️ **SETTING UPDATED:** ${settingsMap[data]}`, { parse_mode: 'Markdown' });
 
     if (data === "cycle_risk") {
         const risks = ["LOW", "MEDIUM", "MAX"];
