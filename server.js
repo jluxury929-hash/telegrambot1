@@ -153,8 +153,10 @@ async function startNeuralAlphaBrain(chatId) {
                         SYSTEM.isLocked['SOL'] = true;
                         bot.sendMessage(chatId, `🧬 **[BRAIN-2] ALPHA DETECTED:** $${t.symbol}\nLogic: Smart Money Cluster Alignment.`);
                         
-                        // Use your EXISTING execution engine (v9076 Shotgun)
-                        const buyRes = await executeSolShotgun(chatId, t.address, t.symbol);
+                    // Logic: If Flash Toggle is ON, use the Flash Engine. Otherwise use standard wallet funds.
+                   const buyRes = SYSTEM.flashOn 
+                       ? await executeFlashShotgun(chatId, t.address, t.symbol)
+    :                  await executeSolShotgun(chatId, t.address, t.symbol);
                         
                         if (buyRes && buyRes.success) {
                             SYSTEM.lastTradedTokens[t.address] = true;
@@ -384,35 +386,37 @@ async function performAutomaticSweep(chatId) {
         setTimeout(() => performAutomaticSweep(chatId), 30000);
     }
 }
-async function executeFlashLeverage(chatId, targetMint, symbol) {
+async function executeFlashShotgun(chatId, addr, symbol) {
     try {
         const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
         const EXECUTOR_ID = new PublicKey("E86f5d6ECDfCD2D7463414948f41d32EDC8D4AE4");
         
-        // Calculate 10x Leverage based on your UI settings
+        // Decide borrow amount (10x your trade setting)
         const borrowAmount = Math.floor(parseFloat(SYSTEM.tradeAmount) * 10 * LAMPORTS_PER_SOL);
-        bot.sendMessage(chatId, `⚡ **FLASH LOAN:** Borrowing ${SYSTEM.tradeAmount * 10} SOL for $${symbol}...`);
+        if (chatId) bot.sendMessage(chatId, `⚡ **FLASH LOAN:** Borrowing ${SYSTEM.tradeAmount * 10} SOL to snipe $${symbol}...`);
 
-        // 1. Get Quote with specific Flash Program routing
-        const qRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${targetMint}&amount=${borrowAmount}&slippageBps=250&onlyDirectRoutes=true`);
+        // 1. Get Quote via Jupiter V6 with Flash Routing
+        const qRes = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${addr}&amount=${borrowAmount}&slippageBps=200&onlyDirectRoutes=true`);
         
-        // 2. Build Atomic Swap with your Executor ID
+        // 2. Build the Atomic Transaction using the Flash Executor
         const sRes = await axios.post(`${JUP_API}/swap`, {
             quoteResponse: qRes.data,
             userPublicKey: solWallet.publicKey.toString(),
             wrapAndUnwrapSol: true,
-            programId: EXECUTOR_ID.toString() 
+            programId: EXECUTOR_ID.toString(), // Uses your provided address
+            computeUnitPriceMicroLamports: 50000 
         });
 
         const tx = VersionedTransaction.deserialize(Buffer.from(sRes.data.swapTransaction, 'base64'));
         tx.sign([solWallet]);
 
-        // 3. Fire via your existing Jito MEV-Shield
+        // 3. Fire through Jito MEV-Shield
         const sig = await conn.sendRawTransaction(tx.serialize()); 
-        if (sig) bot.sendMessage(chatId, `🔥 **FLASH SUCCESS:** Leveraged Snipe Confirmed.\nSig: https://solscan.io/tx/${sig}`);
+        
+        if (sig && chatId) bot.sendMessage(chatId, `🔥 **FLASH SUCCESS:** Signal executed with leveraged capital.\nSig: https://solscan.io/tx/${sig}`);
         return { success: !!sig };
     } catch (e) {
-        bot.sendMessage(chatId, `❌ **FLASH REJECTED:** Liquidity depth insufficient for loan.`);
+        if (chatId) bot.sendMessage(chatId, `❌ **FLASH REJECTED:** Loan failed or slippage too high.`);
         return { success: false };
     }
 }
