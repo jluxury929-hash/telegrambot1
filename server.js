@@ -38,7 +38,7 @@ let SYSTEM = {
 let solWallet, evmWallet;
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
-// --- 2. INTERFACE (UI) ---
+// --- 2. INTERACTIVE DASHBOARD ---
 const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
 const TERM_LABELS = { SHORT: '⏱️ SHRT', MEDIUM: '⏳ MED', LONG: '💎 LONG' };
 
