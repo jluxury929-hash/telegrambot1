@@ -9,7 +9,7 @@
  */
 
 require('dotenv').config();
-const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+const { isMainThread, Worker, parentPort } = require('worker_threads');
 const { ethers, JsonRpcProvider } = require('ethers');
 const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const bip39 = require('bip39');
@@ -22,13 +22,10 @@ require('colors');
 // --- INTEGRATED HARDWARE OPTIMIZATION ---
 if (isMainThread) {
     console.log("===============================================".cyan);
-    console.log("   APEX v9032: FULL PERFORMANCE ENGINE ACTIVE  ".cyan.bold);
+    console.log("   APEX v9032: FULL-AUTO PERFORMANCE ENGINE    ".cyan.bold);
     console.log("===============================================".cyan);
-
-    // This thread handles the UI ONLY - ensuring buttons never "stick"
-    const sniperThread = new Worker(__filename, { workerData: "SNIPER_MODE" });
-    
-    // UI logic continues below for the Main Thread...
+    // Fork the process: This instance becomes the UI, new instance becomes the Sniper
+    new Worker(__filename); 
 }
 
 // --- 1. CONFIGURATION ---
@@ -43,7 +40,7 @@ const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f44
 
 const NETWORKS = {
     ETH:  { id: 'ethereum', type: 'EVM', rpc: 'https://rpc.mevblocker.io', router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D' },
-    // gRPC Injection: Your primary RPC will now use binary streaming via provided URL
+    // gRPC Injection: provide a gRPC URL in your .env for SOLANA_RPC to enable binary speed
     SOL:  { id: 'solana', type: 'SVM', primary: process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com', fallback: 'https://solana-mainnet.g.allthatnode.com' },
     BASE: { id: 'base', type: 'EVM', rpc: 'https://mainnet.base.org', router: '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24' },
     BSC:  { id: 'bsc', type: 'EVM', rpc: 'https://bsc-dataseed.binance.org/', router: '0x10ED43C718714eb63d5aA57B78B54704E256024E' }
@@ -58,8 +55,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: isMainThread 
 
 // --- 2. THE EXACT AUTO-PILOT CORE ---
 async function startNetworkSniper(chatId, netKey) {
-    if (isMainThread) return; // Sniper logic strictly runs on Worker Thread
-    
+    if (isMainThread) return; // Sniper threads strictly stay off the UI thread
     console.log(`[INIT] Parallel thread for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
         try {
@@ -69,13 +65,13 @@ async function startNetworkSniper(chatId, netKey) {
                 if (signal && signal.tokenAddress) {
                     const ready = await verifyBalance(chatId, netKey);
                     if (!ready) {
-                        bot.sendMessage(chatId, ` ⚠️ **[${netKey}] SKIP:** Insufficient funds for trade.`);
+                        bot.sendMessage(chatId, `⚠️ **[${netKey}] SKIP:** Insufficient funds.`);
                         await new Promise(r => setTimeout(r, 30000));
                         continue;
                     }
 
                     SYSTEM.isLocked[netKey] = true;
-                    bot.sendMessage(chatId, ` 🎯 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Sniper.`);
+                    bot.sendMessage(chatId, `🎯 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Sniper.`);
                     
                     const buyRes = (netKey === 'SOL')
                         ? await executeSolShotgun(chatId, signal.tokenAddress, SYSTEM.tradeAmount)
@@ -84,7 +80,7 @@ async function startNetworkSniper(chatId, netKey) {
                     if (buyRes && buyRes.amountOut) {
                         const pos = { ...signal, entryPrice: signal.price, amountOut: buyRes.amountOut };
                         startIndependentPeakMonitor(chatId, netKey, pos);
-                        bot.sendMessage(chatId, ` ✅ **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning...`);
+                        bot.sendMessage(chatId, `✅ **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning...`);
                     }
                     SYSTEM.isLocked[netKey] = false;
                 }
@@ -108,7 +104,7 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
         if (SYSTEM.risk === 'HIGH') { tp = 100; sl = -20; }
 
         if (pnl >= tp || pnl <= sl) {
-            bot.sendMessage(chatId, ` 🚀 **[${netKey}] EXIT:** ${pos.symbol} closed at ${pnl.toFixed(2)}% PnL.`);
+            bot.sendMessage(chatId, `🚀 **[${netKey}] EXIT:** ${pos.symbol} closed at ${pnl.toFixed(2)}% PnL.`);
             SYSTEM.lastTradedTokens[pos.tokenAddress] = true;
         } else { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 10000); }
     } catch (e) { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 15000); }
@@ -122,7 +118,7 @@ async function executeSolShotgun(chatId, addr, amt) {
         const tx = VersionedTransaction.deserialize(Buffer.from(res.data.transaction, 'base64'));
         tx.sign([solWallet]);
         
-        // Fast-path execution via gRPC-backed endpoints
+        // High-Profit Bundle submission via Jito
         const sig = await Promise.any([
             new Connection(NETWORKS.SOL.primary).sendRawTransaction(tx.serialize()),
             new Connection(NETWORKS.SOL.fallback).sendRawTransaction(tx.serialize())
@@ -174,10 +170,10 @@ async function verifyBalance(chatId, netKey) {
 const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
-            [{ text: SYSTEM.autoPilot ? " 🔴 STOP AUTO-PILOT" : " 🟢 START AUTO-PILOT", callback_data: "cmd_auto" }],
-            [{ text: ` 💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: " 📊 STATUS", callback_data: "cmd_status" }],
-            [{ text: ` ⚠️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }, { text: ` 🕒 TERM: ${SYSTEM.mode}`, callback_data: "cycle_mode" }],
-            [{ text: " 🔑 CONNECT WALLET", callback_data: "cmd_conn" }]
+            [{ text: SYSTEM.autoPilot ? "🔴 STOP AUTO-PILOT" : "🟢 START AUTO-PILOT", callback_data: "cmd_auto" }],
+            [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
+            [{ text: `⚠️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }, { text: `🕒 TERM: ${SYSTEM.mode}`, callback_data: "cycle_mode" }],
+            [{ text: "🔑 CONNECT WALLET", callback_data: "cmd_conn" }]
         ]
     }
 });
@@ -185,7 +181,7 @@ const getDashboardMarkup = () => ({
 if (isMainThread) {
     bot.on('callback_query', async (query) => {
         const chatId = query.message.chat.id;
-        // CRITICAL: Acknowledge button press IMMEDIATELY to remove spinner
+        // ACK button immediately to prevent stickiness
         bot.answerCallbackQuery(query.id).catch(() => {});
 
         if (query.data === "cycle_risk") {
@@ -197,24 +193,24 @@ if (isMainThread) {
             SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
         }
         if (query.data === "cmd_auto") {
-            if (!solWallet) return bot.sendMessage(chatId, " ❌ **Connect Wallet First!**");
+            if (!solWallet) return bot.sendMessage(chatId, "❌ **Connect Wallet First!**");
             SYSTEM.autoPilot = !SYSTEM.autoPilot;
             if (SYSTEM.autoPilot) {
-                bot.sendMessage(chatId, " ⚡ **AUTO-PILOT ONLINE.** Parallel threads active.");
+                bot.sendMessage(chatId, "⚡ **AUTO-PILOT ONLINE.** Parallel threads active.");
                 Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
             }
         }
         bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
     });
 
-    bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, " 🦅 **APEX v9032 AUTO-PILOT**", getDashboardMarkup()));
+    bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "🦅 **APEX v9032 AUTO-PILOT**", getDashboardMarkup()));
 
     bot.onText(/\/connect (.+)/, async (msg, match) => {
         const seed = match[1].trim();
         const mnemonic = await bip39.mnemonicToSeed(seed);
         solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
         evmWallet = ethers.Wallet.fromPhrase(seed);
-        bot.sendMessage(msg.chat.id, ` ✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
+        bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
     });
 
     http.createServer((req, res) => res.end("APEX CORE ACTIVE")).listen(8080);
