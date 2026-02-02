@@ -8,16 +8,9 @@
  * ===============================================================================
  */
 
-const { Worker, isMainThread } = require('worker_threads');
-
-// --- HARDWARE BRANCHING (Fixes Button Stickiness) ---
-if (isMainThread) { 
-    new Worker(__filename); // Offloads Sniper logic to Core 2
-}
-
 require('dotenv').config();
 const { ethers, JsonRpcProvider } = require('ethers');
-const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
+const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 const axios = require('axios');
@@ -34,7 +27,6 @@ const APEX_ABI = [
 ];
 const JUP_ULTRA_API = "https://api.jup.ag/ultra/v1";
 const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f440d4df-b5c4-4020-a960-ac182d3752ab' }};
-const JITO_SENTINEL = new PublicKey("jitodontfront111111111111111111111111111111");
 
 const NETWORKS = {
     ETH:  { id: 'ethereum', type: 'EVM', rpc: 'https://rpc.mevblocker.io', router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D' },
@@ -47,18 +39,67 @@ let SYSTEM = {
     autoPilot: false, tradeAmount: "0.01", risk: 'MEDIUM', mode: 'MEDIUM',
     lastTradedTokens: {}, isLocked: {}
 };
+// --- HIGH FREQUENCY MODULES (ADD HERE) ---
+async function startGeyserPush(chatId) {
+    const Client = require("@triton-one/yellowstone-grpc");
+    const client = new Client(process.env.GEYSER_URL, process.env.GEYSER_TOKEN);
+    const stream = await client.subscribe();
+
+    const request = {
+        transactions: {
+            raydium: { accountInclude: ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"] } // Authority ID
+        },
+        commitment: "processed", 
+    };
+
+    stream.on("data", async (data) => {
+        if (data.transaction && SYSTEM.autoPilot) {
+            const pool = data.transaction.transaction.message.accountKeys[1];
+            bot.sendMessage(chatId, `🚀 **[gRPC] FAST-SIGNAL:** ${pool}`);
+            // Calls original executeSolShotgun with zero-latency data
+            await executeSolShotgun(chatId, pool, "GEYSER_MINT");
+        }
+    });
+
+    await new Promise((resolve, reject) => {
+        stream.write(request, (err) => err ? reject(err) : resolve());
+    });
+}
+
+async function executeFlashShotgun(chatId, addr, symbol) {
+    const borrowAmt = parseFloat(SYSTEM.tradeAmount) * 10 * LAMPORTS_PER_SOL;
+    
+    // 1. Fetch Leveraged Quote from Jupiter v6
+    const quote = await axios.get(`${JUP_API}/quote?inputMint=So11...&outputMint=${addr}&amount=${borrowAmt}&slippageBps=200`);
+    
+    // 2. Build Atomic Swap Instruction
+    // Note: programId points to the on-chain Flash Loan Executor Program
+    const swap = await axios.post(`${JUP_API}/swap`, {
+        quoteResponse: quote.data,
+        userPublicKey: solWallet.publicKey.toString(),
+        programId: "E86f5d6ECDfCD2D7463414948f41d32EDC8D4AE4" 
+    });
+
+    const tx = VersionedTransaction.deserialize(Buffer.from(swap.data.swapTransaction, 'base64'));
+    tx.sign([solWallet]);
+
+    // 3. Shadow Execution via Jito (Uses the original send override)
+    const sig = await Connection.prototype.sendRawTransaction.call(new Connection(NETWORKS.SOL.primary), tx.serialize());
+    
+    bot.sendMessage(chatId, `🔥 **FLASH 10x FIRED:** ${symbol}\nLeveraged: ${(borrowAmt/1e9).toFixed(2)} SOL`);
+    return { success: !!sig };
+}
 let evmWallet, solWallet;
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: isMainThread });
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 // --- 2. THE EXACT AUTO-PILOT CORE ---
 async function startNetworkSniper(chatId, netKey) {
-    if (isMainThread) return; // Sniper logic stays off the UI thread
     console.log(`[INIT] Parallel thread for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
         try {
             if (!SYSTEM.isLocked[netKey]) {
                 const signal = await runNeuralSignalScan(netKey);
-                
+               
                 if (signal && signal.tokenAddress) {
                     const ready = await verifyBalance(chatId, netKey);
                     if (!ready) {
@@ -69,11 +110,11 @@ async function startNetworkSniper(chatId, netKey) {
 
                     SYSTEM.isLocked[netKey] = true;
                     bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Sniper.`);
-                    
+                   
                     const buyRes = (netKey === 'SOL')
                         ? await executeSolShotgun(chatId, signal.tokenAddress, SYSTEM.tradeAmount)
-                        : await executeEvmContract(chat_id, netKey, signal.tokenAddress, SYSTEM.tradeAmount);
-                    
+                        : await executeEvmContract(chatId, netKey, signal.tokenAddress, SYSTEM.tradeAmount);
+                   
                     if (buyRes && buyRes.amountOut) {
                         const pos = { ...signal, entryPrice: signal.price, amountOut: buyRes.amountOut };
                         startIndependentPeakMonitor(chatId, netKey, pos);
@@ -95,7 +136,7 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
         const curPrice = parseFloat(res.data.pairs[0].priceUsd) || 0;
         const entry = parseFloat(pos.entryPrice) || 0.00000001;
         const pnl = ((curPrice - entry) / entry) * 100;
-        
+       
         let tp = 25; let sl = -10;
         if (SYSTEM.risk === 'LOW') { tp = 12; sl = -5; }
         if (SYSTEM.risk === 'HIGH') { tp = 100; sl = -20; }
@@ -173,39 +214,37 @@ const getDashboardMarkup = () => ({
     }
 });
 
-if (isMainThread) {
-    bot.on('callback_query', async (query) => {
-        const chatId = query.message.chat.id;
-        bot.answerCallbackQuery(query.id).catch(() => {});
-        
-        if (query.data === "cycle_risk") {
-            const risks = ['LOW', 'MEDIUM', 'HIGH'];
-            SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    if (query.data === "cycle_risk") {
+        const risks = ['LOW', 'MEDIUM', 'HIGH'];
+        SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
+    }
+    if (query.data === "cycle_amt") {
+        const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
+        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+    }
+    if (query.data === "cmd_auto") {
+        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Connect Wallet First!", show_alert: true });
+        SYSTEM.autoPilot = !SYSTEM.autoPilot;
+        if (SYSTEM.autoPilot) {
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ONLINE.** Parallel threads active.");
+            Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
         }
-        if (query.data === "cycle_amt") {
-            const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
-            SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
-        }
-        if (query.data === "cmd_auto") {
-            if (!solWallet) return bot.sendMessage(chat_id, "❌ Connect wallet first!");
-            SYSTEM.autoPilot = !SYSTEM.autoPilot;
-            if (SYSTEM.autoPilot) {
-                bot.sendMessage(chatId, "🚀 **AUTO-PILOT ONLINE.** Parallel threads active.");
-                Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
-            }
-        }
-        bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
-    });
+    }
+    bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
+    bot.answerCallbackQuery(query.id);
+});
 
-    bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "🎮 **APEX v9032 AUTO-PILOT**", getDashboardMarkup()));
+bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "🎮 **APEX v9032 AUTO-PILOT**", getDashboardMarkup()));
 
-    bot.onText(/\/connect (.+)/, async (msg, match) => {
-        const seed = match[1].trim();
-        const mnemonic = await bip39.mnemonicToSeed(seed);
-        solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
-        evmWallet = ethers.Wallet.fromPhrase(seed);
-        bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
-    });
+bot.onText(/\/connect (.+)/, async (msg, match) => {
+    const seed = match[1].trim();
+    const mnemonic = await bip39.mnemonicToSeed(seed);
+    solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
+    evmWallet = ethers.Wallet.fromPhrase(seed);
+    bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
+});
 
-    http.createServer((req, res) => res.end("AUTO-PILOT READY")).listen(8080);
-}
+http.createServer((req, res) => res.end("AUTO-PILOT READY")).listen(8080);
+
