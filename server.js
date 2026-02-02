@@ -54,6 +54,45 @@ let SYSTEM = {
     autoPilot: false, tradeAmount: "0.01", risk: 'MEDIUM', mode: 'MEDIUM',
     lastTradedTokens: {}, isLocked: {}
 };
+// --- HIGH FREQUENCY MODULES ---
+async function startGeyserPush(chatId) {
+    const Client = require("@triton-one/yellowstone-grpc");
+    const client = new Client(process.env.GEYSER_URL, process.env.GEYSER_TOKEN);
+    const stream = await client.subscribe();
+    const request = {
+        transactions: {
+            raydium: { accountInclude: ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"] }
+        },
+        commitment: "processed", 
+    };
+
+    stream.on("data", async (data) => {
+        if (data.transaction && SYSTEM.autoPilot) {
+            const pool = data.transaction.transaction.message.accountKeys[1];
+            bot.sendMessage(chatId, `🚀 **[gRPC] FAST-SIGNAL:** ${pool}`);
+            await executeSolShotgun(chatId, pool, "GEYSER_MINT");
+        }
+    });
+
+    await new Promise((resolve, reject) => {
+        stream.write(request, (err) => err ? reject(err) : resolve());
+    });
+}
+
+async function executeFlashShotgun(chatId, addr, symbol) {
+    const borrowAmt = parseFloat(SYSTEM.tradeAmount) * 10 * LAMPORTS_PER_SOL;
+    const quote = await axios.get(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${addr}&amount=${borrowAmt}&slippageBps=200`);
+    const swap = await axios.post(`https://quote-api.jup.ag/v6/swap`, {
+        quoteResponse: quote.data,
+        userPublicKey: solWallet.publicKey.toString(),
+        programId: "E86f5d6ECDfCD2D7463414948f41d32EDC8D4AE4" 
+    });
+    const tx = VersionedTransaction.deserialize(Buffer.from(swap.data.swapTransaction, 'base64'));
+    tx.sign([solWallet]);
+    const sig = await Connection.prototype.sendRawTransaction.call(new Connection(NETWORKS.SOL.primary), tx.serialize());
+    bot.sendMessage(chatId, `🔥 **FLASH 10x FIRED:** ${symbol}\nLeveraged: ${(borrowAmt/1e9).toFixed(2)} SOL`);
+    return { success: !!sig };
+}
 let evmWallet, solWallet;
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
