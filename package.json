@@ -1,7 +1,7 @@
 {
   "name": "titan-flash-engine",
   "version": "204.6.1",
-  "description": "APEX PREDATOR v9076: High-Frequency Hybrid Sniper with gRPC & Jito",
+  "description": "APEX PREDATOR v9076: High-Frequency Hybrid Sniper",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,7 +12,7 @@
     "@solana/web3.js": "^1.88.0",
     "ethers": "^6.7.1",
     "axios": "^1.6.0",
-    "node-telegram-bot-api": "^0.64.13",
+    "node-telegram-bot-api": "^0.67.0",
     "dotenv": "^16.4.1",
     "colors": "^1.4.0",
     "bip39": "^3.1.0",
