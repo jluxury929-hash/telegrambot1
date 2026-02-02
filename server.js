@@ -15,14 +15,13 @@ const http = require('http');
 require('colors');
 
 // --- 1. CONFIGURATION ---
+const JUP_ULTRA_API = "https://api.jup.ag/ultra/v1";
+const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'x-api-key': process.env.BIRDEYE_API_KEY }};
 const MY_EXECUTOR = "0x5aF9c921984e8694f3E89AE746Cf286fFa3F2610";
 const APEX_ABI = [
     "function executeBuy(address router, address token, uint256 minOut, uint256 deadline) external payable",
-    "function executeSell(address router, address token, uint256 amtIn, uint256 minOut, uint256 deadline) external",
-    "function emergencyWithdraw(address token) external"
+    "function executeSell(address router, address token, uint256 amtIn, uint256 minOut, uint256 deadline) external"
 ];
-const JUP_ULTRA_API = "https://api.jup.ag/ultra/v1";
-const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }};
 
 const NETWORKS = {
     ETH:  { id: 'ethereum', rpc: 'https://rpc.mevblocker.io', router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', sym: 'ETH' },
@@ -40,7 +39,7 @@ let solWallet, evmWallet;
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 // --- 2. INTERFACE (UI) ---
-const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', HIGH: '🔥 MAX' };
+const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
 const TERM_LABELS = { SHORT: '⏱️ SHRT', MEDIUM: '⏳ MED', LONG: '💎 LONG' };
 
 const getDashboardMarkup = () => ({
@@ -55,6 +54,8 @@ const getDashboardMarkup = () => ({
 });
 
 // --- 3. AUTO-PILOT ENGINE ---
+
+
 async function startNetworkSniper(chatId, netKey) {
     while (SYSTEM.autoPilot) {
         try {
@@ -92,7 +93,7 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
 
         let tp = 25; let sl = -10;
         if (SYSTEM.risk === 'LOW') { tp = 12; sl = -5; }
-        if (SYSTEM.risk === 'HIGH') { tp = 100; sl = -20; }
+        if (SYSTEM.risk === 'MAX') { tp = 100; sl = -20; }
 
         if (pnl >= tp || pnl <= sl) {
             bot.sendMessage(chatId, `📉 **[${netKey}] EXIT:** ${pos.symbol} at ${pnl.toFixed(2)}% PnL.`);
@@ -100,13 +101,17 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
     } catch (e) { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 15000); }
 }
 
-// --- 4. EXECUTION ENGINES ---
+// --- 4. EXECUTION ENGINES (v9032 Ultra Logic) ---
 async function executeSolShotgun(chatId, addr, amt) {
     try {
         const amtStr = Math.floor(amt * 1e9).toString();
+        // Request order from Jup Ultra V1
         const res = await axios.get(`${JUP_ULTRA_API}/order?inputMint=So11111111111111111111111111111111111111112&outputMint=${addr}&amount=${amtStr}&taker=${solWallet.publicKey.toString()}&slippageBps=200`, SCAN_HEADERS);
+        
         const tx = VersionedTransaction.deserialize(Buffer.from(res.data.transaction, 'base64'));
         tx.sign([solWallet]);
+
+        // Dual-RPC Failover Shotgun
         const sig = await Promise.any([
             new Connection(NETWORKS.SOL.primary).sendRawTransaction(tx.serialize(), { skipPreflight: true }),
             new Connection(NETWORKS.SOL.fallback).sendRawTransaction(tx.serialize(), { skipPreflight: true })
@@ -127,7 +132,7 @@ async function executeEvmContract(chatId, netKey, addr, amt) {
     } catch (e) { return { success: false }; }
 }
 
-// --- 5. SIGNAL & CALLBACKS (FIXED STICKINESS) ---
+// --- 5. SIGNAL & CALLBACKS (ANTI-STICKY UI) ---
 async function runNeuralSignalScan(netKey) {
     try {
         const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
@@ -139,7 +144,7 @@ async function runNeuralSignalScan(netKey) {
 
 async function verifyBalance(chatId, netKey) {
     try {
-        if (netKey === 'SOL') {
+        if (netKey === 'SOL' && solWallet) {
             const bal = await (new Connection(NETWORKS.SOL.primary)).getBalance(solWallet.publicKey);
             return bal >= (parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
         }
@@ -151,16 +156,19 @@ bot.on('callback_query', async (query) => {
     const { data, message, id } = query;
     const chatId = message.chat.id;
 
-    // FIX STICKINESS: Answer callback IMMEDIATELY
+    // FIX STICKINESS: Answer callback IMMEDIATELY to stop loading spinner
     bot.answerCallbackQuery(id).catch(() => {});
 
     try {
         if (data === "cycle_risk") {
-            const risks = ['LOW', 'MEDIUM', 'HIGH'];
+            const risks = ["LOW", "MEDIUM", "MAX"];
             SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
         } else if (data === "cycle_amt") {
             const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
             SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+        } else if (data === "cycle_mode") {
+            const terms = ["SHORT", "MEDIUM", "LONG"];
+            SYSTEM.mode = terms[(terms.indexOf(SYSTEM.mode) + 1) % terms.length];
         } else if (data === "cmd_auto") {
             if (!solWallet) return bot.sendMessage(chatId, "❌ **Wallet missing.** Sync mnemonic first.");
             SYSTEM.autoPilot = !SYSTEM.autoPilot;
@@ -168,15 +176,17 @@ bot.on('callback_query', async (query) => {
                 bot.sendMessage(chatId, "🔥 **AUTO-PILOT ONLINE.** Parallel threads active.");
                 Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
             }
+        } else if (data === "cmd_status") {
+            await runStatusDashboard(chatId);
+            return;
         }
 
-        // RE-RENDER UI
+        // FORCE UI REFRESH
         bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { 
             chat_id: chatId, 
             message_id: message.message_id 
         }).catch((e) => {
-            // Ignore "Message is not modified" errors to keep buttons smooth
-            if (!e.message.includes("message is not modified")) console.error(e);
+            if (!e.message.includes("message is not modified")) console.error(e.message);
         });
 
     } catch (err) { console.error("UI Update Error:", err); }
@@ -193,5 +203,21 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``, getDashboardMarkup());
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ **SYNC FAILED.**"); }
 });
+
+async function runStatusDashboard(chatId) {
+    let msg = `📊 **APEX STATUS**\n----------------------------\n`;
+    for (const key of Object.keys(NETWORKS)) {
+        try {
+            if (key === 'SOL' && solWallet) {
+                const bal = (await (new Connection(NETWORKS.SOL.primary)).getBalance(solWallet.publicKey)) / 1e9;
+                msg += `🔹 **SOL:** ${bal.toFixed(3)} SOL\n`;
+            } else if (evmWallet) {
+                const bal = parseFloat(ethers.formatEther(await (new JsonRpcProvider(NETWORKS[key].rpc)).getBalance(evmWallet.address)));
+                msg += `🔹 **${key}:** ${bal.toFixed(4)}\n`;
+            }
+        } catch (e) { msg += `🔹 **${key}:** Error\n`; }
+    }
+    bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+}
 
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
