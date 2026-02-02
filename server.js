@@ -24,7 +24,9 @@ const APEX_ABI = [
     "function executeBuy(address router, address token, uint256 minOut, uint256 deadline) external payable",
     "function executeSell(address router, address token, uint256 amtIn, uint256 minOut, uint256 deadline) external",
     "function emergencyWithdraw(address token) external"
+const JITO_SENTINEL = new PublicKey("jitodontfront111111111111111111111111111111");
 ];
+
 const JUP_ULTRA_API = "https://api.jup.ag/ultra/v1";
 const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f440d4df-b5c4-4020-a960-ac182d3752ab' }};
 
