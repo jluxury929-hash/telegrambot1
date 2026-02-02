@@ -23,7 +23,7 @@ const MY_EXECUTOR = "0x5aF9c921984e8694f3E89AE746Cf286fFa3F2610";
 const APEX_ABI = [
     "function executeBuy(address router, address token, uint256 minOut, uint256 deadline) external payable",
     "function executeSell(address router, address token, uint256 amtIn, uint256 minOut, uint256 deadline) external",
-    "function emergencyWithdraw(address token) external"
+    "function emergencyWithdraw(address token)"
 ];
 const JUP_ULTRA_API = "https://api.jup.ag/ultra/v1";
 const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f440d4df-b5c4-4020-a960-ac182d3752ab' }};
@@ -53,7 +53,7 @@ async function startNetworkSniper(chatId, netKey) {
                 if (signal && signal.tokenAddress) {
                     const ready = await verifyBalance(chatId, netKey);
                     if (!ready) {
-                        bot.sendMessage(chatId, `⚠️ **[${netKey}] SKIP:** Insufficient funds for trade.`);
+                        bot.sendMessage(chatId, `⚠️ **[${netKey}] SKIP:** Insufficient funds.`);
                         await new Promise(r => setTimeout(r, 30000));
                         continue;
                     }
@@ -68,7 +68,7 @@ async function startNetworkSniper(chatId, netKey) {
                     if (buyRes && buyRes.amountOut) {
                         const pos = { ...signal, entryPrice: signal.price, amountOut: buyRes.amountOut };
                         startIndependentPeakMonitor(chatId, netKey, pos);
-                        bot.sendMessage(chatId, `✅ **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning...`);
+                        bot.sendMessage(chatId, `✅ **[${netKey}] BOUGHT ${signal.symbol}.** Monitoring PnL...`);
                     }
                     SYSTEM.isLocked[netKey] = false;
                 }
@@ -87,12 +87,13 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
         const entry = parseFloat(pos.entryPrice) || 0.00000001;
         const pnl = ((curPrice - entry) / entry) * 100;
         
+        // Dynamic Risk Scaling
         let tp = 25; let sl = -10;
         if (SYSTEM.risk === 'LOW') { tp = 12; sl = -5; }
         if (SYSTEM.risk === 'HIGH') { tp = 100; sl = -20; }
 
         if (pnl >= tp || pnl <= sl) {
-            bot.sendMessage(chatId, `🚀 **[${netKey}] EXIT:** ${pos.symbol} closed at ${pnl.toFixed(2)}% PnL.`);
+            bot.sendMessage(chatId, `🚀 **[${netKey}] EXIT:** ${pos.symbol} at ${pnl.toFixed(2)}% PnL.`);
             SYSTEM.lastTradedTokens[pos.tokenAddress] = true;
         } else { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 10000); }
     } catch (e) { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 15000); }
@@ -166,6 +167,9 @@ const getDashboardMarkup = () => ({
 
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
+    // CRITICAL: Immediate response to Telegram to prevent button "stickiness"
+    bot.answerCallbackQuery(query.id).catch(() => {});
+
     if (query.data === "cycle_risk") {
         const risks = ['LOW', 'MEDIUM', 'HIGH'];
         SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
@@ -175,25 +179,34 @@ bot.on('callback_query', async (query) => {
         SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
     }
     if (query.data === "cmd_auto") {
-        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Connect Wallet First!", show_alert: true });
+        if (!solWallet) return bot.sendMessage(chatId, "❌ **Connect Wallet First!**");
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) {
             bot.sendMessage(chatId, "⚡ **AUTO-PILOT ONLINE.** Parallel threads active.");
             Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
         }
     }
-    bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
-    bot.answerCallbackQuery(query.id);
+    
+    // Refresh UI
+    bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { 
+        chat_id: chatId, 
+        message_id: query.message.message_id 
+    }).catch(() => {});
 });
 
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "🦅 **APEX v9032 AUTO-PILOT**", getDashboardMarkup()));
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
-    const seed = match[1].trim();
-    const mnemonic = await bip39.mnemonicToSeed(seed);
-    solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
-    evmWallet = ethers.Wallet.fromPhrase(seed);
-    bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
+    try {
+        const seed = match[1].trim();
+        const mnemonic = await bip39.mnemonicToSeed(seed);
+        solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
+        evmWallet = ethers.Wallet.fromPhrase(seed);
+        bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
+    } catch (e) { bot.sendMessage(msg.chat.id, "❌ **Invalid Seed Phrase.**"); }
 });
 
-http.createServer((req, res) => res.end("AUTO-PILOT READY")).listen(8080);
+http.createServer((req, res) => {
+    res.writeHead(200, {'Content-Type': 'text/plain'});
+    res.end("APEX CORE ACTIVE");
+}).listen(process.env.PORT || 8080);
