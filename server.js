@@ -1,3 +1,4 @@
+
 /**
  * ===============================================================================
  * APEX PREDATOR: NEURAL ULTRA v9032 (FULL AUTO-PILOT MASTER)
@@ -7,7 +8,58 @@
  * INTERFACE: Fully interactive cycling buttons.
  * ===============================================================================
  */
+// --- ADD BELOW NETWORKS CONFIG ---
+async function startGeyserPush(chatId) {
+    const client = new Client(process.env.GEYSER_URL, process.env.GEYSER_TOKEN);
+    const stream = await client.subscribe();
 
+    // High-speed filter for the Raydium Authority
+    const request = {
+        transactions: {
+            raydium: { accountInclude: ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"] }
+        },
+        commitment: "processed", 
+    };
+// --- UPDATE executeFlashShotgun IN SECTION 5 ---
+async function executeFlashShotgun(chatId, addr, symbol) {
+    const borrowAmt = parseFloat(SYSTEM.tradeAmount) * 10 * LAMPORTS_PER_SOL;
+    
+    // 1. Fetch Leveraged Quote
+    const quote = await axios.get(`${JUP_API}/quote?inputMint=So11...&outputMint=${addr}&amount=${borrowAmt}&slippageBps=200`);
+    
+    // 2. Build Leveraged Swap
+    // Note: programId: "E86f..." is the on-chain Flash Loan Program
+    const swap = await axios.post(`${JUP_API}/swap`, {
+        quoteResponse: quote.data,
+        userPublicKey: solWallet.publicKey.toString(),
+        programId: "E86f5d6ECDfCD2D7463414948f41d32EDC8D4AE4" 
+    });
+
+    const tx = VersionedTransaction.deserialize(Buffer.from(swap.data.swapTransaction, 'base64'));
+    tx.sign([solWallet]);
+
+    // 3. MEV-Shield Submission
+    const sig = await Connection.prototype.sendRawTransaction.call(new Connection(NETWORKS.SOL.primary), tx.serialize());
+    
+    bot.sendMessage(chatId, `🔥 **FLASH 10x FIRED:** ${symbol}\nLeveraged: ${(borrowAmt/1e9).toFixed(2)} SOL`);
+    return { success: !!sig };
+}
+    stream.on("data", async (data) => {
+        if (data.transaction && SYSTEM.autoPilot) {
+            const pool = data.transaction.transaction.message.accountKeys[1];
+            bot.sendMessage(chatId, `🚀 **[gRPC] FAST-SIGNAL:** ${pool}`);
+            await executeSolShotgun(chatId, pool, "GEYSER_MINT");
+        }
+    });
+
+    await new Promise((resolve, reject) => {
+        stream.write(request, (err) => err ? reject(err) : resolve());
+    });
+}
+const { Worker, isMainThread } = require('worker_threads');
+if (isMainThread) { 
+    new Worker(__filename); // Offloads Sniper to Core 2
+}
 require('dotenv').config();
 const { ethers, JsonRpcProvider } = require('ethers');
 const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL } = require('@solana/web3.js');
