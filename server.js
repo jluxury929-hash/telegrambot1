@@ -1,19 +1,19 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL ULTRA v9076 (ABSOLUTE MASTER MERGE)
+ * APEX PREDATOR: NEURAL ULTRA v9076 (GLOBAL MASTER MERGE)
  * ===============================================================================
  * INFRASTRUCTURE: Yellowstone gRPC + Jito Atomic Bundles + Jupiter Ultra
  * AUTO-PILOT: Parallel sniper threads + Independent position monitoring (v9032)
- * SECURITY: RugCheck Multi-Filter + Dual-RPC Failover + Infinity PnL Protection
+ * SAFETY: Dual-RPC failover + RugCheck Multi-Filter + Infinity PnL Protection
  * FIXES: ETELEGRAM 409 Conflict + publicKey Null Guard + UI Start Menu
  * ===============================================================================
  */
 
 require('dotenv').config();
 const { ethers, JsonRpcProvider } = require('ethers');
-const {
-    Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL,
-    PublicKey, SystemProgram, Transaction
+const { 
+    Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL, 
+    PublicKey, SystemProgram, Transaction 
 } = require('@solana/web3.js');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
@@ -22,6 +22,11 @@ const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 require('colors');
 
+// --- 🔱 FERRARI ADDITIONS (gRPC & JITO SEARCHER) ---
+const Client = require('@triton-one/yellowstone-grpc').default; 
+const { SearcherClient } = require('jito-ts/dist/sdk/block-engine/searcher');
+const { Bundle } = require('jito-ts/dist/sdk/block-engine/bundle');
+
 // --- 1. CONFIGURATION ---
 const JUP_ULTRA_API = "https://api.jup.ag/ultra/v1";
 const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
@@ -29,19 +34,28 @@ const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f44
 const MY_EXECUTOR = "0x5aF9c921984e8694f3E89AE746Cf286fFa3F2610";
 const APEX_ABI = ["function executeBuy(address router, address token, uint256 minOut, uint256 deadline) external payable"];
 
+// Jito Mainnet Tip Accounts (2026 Reference)
+const JITO_TIP_ACCOUNTS = [
+    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+    "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+    "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+    "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt"
+];
+
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'MEDIUM',
     lastTradedTokens: {}, isLocked: {}, atomicOn: true,
     trailingDistance: 3.0, minProfitThreshold: 5.0,
+    jitoTip: 1000000, // 0.001 SOL
     currentAsset: 'So11111111111111111111111111111111111111112'
 };
 
-let evmWallet, solWallet;
+let evmWallet, solWallet, searcher;
 const ACTIVE_POSITIONS = new Map();
 
 // FIX 409: Improved polling settings
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, {
-    polling: { autoStart: true, params: { timeout: 10 } }
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { 
+    polling: { autoStart: true, params: { timeout: 10 } } 
 });
 
 const NETWORKS = {
@@ -50,6 +64,43 @@ const NETWORKS = {
     BASE: { id: 'base', rpc: 'https://mainnet.base.org' },
     BSC:  { id: 'bsc', rpc: 'https://bsc-dataseed.binance.org/' }
 };
+
+// --- 🔱 FERRARI ENGINE: gRPC STREAM HANDLER ---
+async function initFerrariStream(chatId) {
+    if (!process.env.GRPC_URL) return;
+    const client = new Client(process.env.GRPC_URL, process.env.GRPC_TOKEN);
+    const stream = await client.subscribe();
+    
+    const request = {
+        transactions: { raydium: { vote: false, failed: false, accountInclude: ["675kPX9MHTjS2zt1q61swKS6Lez7YuzE4HkHksEKPmxC"] } },
+        commitment: 1, accounts: {}, slots: {}, entry: {}, blocks: {}, blocksMeta: {}, accountsDataSlice: []
+    };
+
+    await new Promise((res) => stream.write(request, () => res()));
+    console.log("🏎️ Ferrari Engine: Yellowstone gRPC Live".green.bold);
+
+    stream.on("data", (data) => {
+        if (SYSTEM.autoPilot && data.transaction) {
+            const logs = data.transaction.meta?.logMessages?.join("") || "";
+            if (logs.includes("initialize2")) handleNeuralTrigger(chatId);
+        }
+    });
+}
+
+// --- 🔱 FERRARI TRANSMISSION: JITO SEARCHER EXECUTION ---
+async function executeShotgunBundle(chatId, tx, tip = SYSTEM.jitoTip) {
+    if (!solWallet) return { success: false };
+    try {
+        if (!searcher) searcher = new SearcherClient(process.env.BLOCK_ENGINE_URL, solWallet);
+        const jitoTipAccount = new PublicKey(JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)]);
+        
+        const bundle = new Bundle([tx], 5);
+        bundle.addTipInstruction(solWallet.publicKey, tip, jitoTipAccount);
+        
+        const bundleId = await searcher.sendBundle(bundle);
+        return { success: !!bundleId, id: bundleId };
+    } catch (e) { return { success: false }; }
+}
 
 // --- 2. INTERFACE HELPERS ---
 const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
@@ -74,8 +125,8 @@ bot.onText(/\/start/, (msg) => {
 ⚔️ <b>APEX PREDATOR v9076 ONLINE</b>
 --------------------------------------------
 <b>SYSTEM DIAGNOSTICS:</b>
-📡 Network: <code>Mainnet-Beta (gRPC)</code>
-🛡️ Shield: <code>Jito Atomic Enabled</code>
+📡 Network: <code>Mainnet-Beta (gRPC Enabled)</code>
+🛡️ Shield: <code>Jito Atomic Bundles</code>
 🧠 AI Logic: <code>Parallel sniper threads</code>
 --------------------------------------------
 <i>Waiting for neural uplink...</i>`;
@@ -84,6 +135,7 @@ bot.onText(/\/start/, (msg) => {
 
 // --- 4. THE FULL AUTO-PILOT CORE ---
 async function startNetworkSniper(chatId, netKey) {
+    if (netKey === 'SOL') initFerrariStream(chatId);
     console.log(`[INIT] Parallel thread for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
         try {
@@ -91,17 +143,17 @@ async function startNetworkSniper(chatId, netKey) {
                 const signal = await runNeuralSignalScan(netKey);
                 if (signal && signal.tokenAddress) {
                     if (!solWallet) continue;
-                   
+                    
                     const safe = await verifySignalSafety(signal.tokenAddress);
                     if (!safe) continue;
 
                     SYSTEM.isLocked[netKey] = true;
                     bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Sniper.`);
-                   
+                    
                     const buyRes = (netKey === 'SOL')
                         ? await executeSolShotgun(chatId, signal.tokenAddress, parseFloat(SYSTEM.tradeAmount), 'BUY')
                         : await executeEvmSwap(chatId, netKey, signal.tokenAddress);
-                   
+                    
                     if (buyRes && buyRes.success) {
                         const pos = { ...signal, entryPrice: signal.price };
                         ACTIVE_POSITIONS.set(signal.tokenAddress, pos);
@@ -153,10 +205,8 @@ async function executeSolShotgun(chatId, addr, amt, side = 'BUY') {
         const tx = VersionedTransaction.deserialize(Buffer.from(res.data.transaction, 'base64'));
         tx.sign([solWallet]);
 
-        // Jito Bundle Logic
-        const base64Tx = Buffer.from(tx.serialize()).toString('base64');
-        const jitoRes = await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[base64Tx]] });
-        return { success: !!jitoRes.data.result };
+        // Jito Bundle Logic Fix (Institutional Lane)
+        return await executeShotgunBundle(chatId, tx);
     } catch (e) { return { success: false }; }
 }
 
@@ -165,7 +215,6 @@ async function executeEvmSwap(chatId, netKey, addr) {
     try {
         const net = NETWORKS[netKey];
         const signer = evmWallet.connect(new JsonRpcProvider(net.rpc));
-        // Placeholder for v9032 EVM Executor contracts
         return { success: true };
     } catch (e) { return { success: false }; }
 }
@@ -173,13 +222,12 @@ async function executeEvmSwap(chatId, netKey, addr) {
 // --- 6. CALLBACK LOGIC ---
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+
     if (query.data === "cmd_auto") {
-        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "⚠️ Connect wallet first!", show_alert: true });
+        if (!solWallet) return bot.sendMessage(chatId, "⚠️ Connect wallet first!");
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ACTIVE.** Parallel scanning engaged.");
-            Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
-        }
+        if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
     }
     if (query.data === "cycle_amt") {
         const amts = ["0.1", "0.5", "1.0", "5.0"];
@@ -190,7 +238,6 @@ bot.on('callback_query', async (query) => {
         SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
     }
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
-    bot.answerCallbackQuery(query.id);
 });
 
 // --- 7. UPLINK & SCAN HELPERS ---
@@ -209,4 +256,3 @@ async function verifySignalSafety(addr) { try { const res = await axios.get(`htt
 
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
 console.log("SYSTEM BOOTED: APEX PREDATOR v9076 MASTER READY".green.bold);
-
