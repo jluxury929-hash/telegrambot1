@@ -29,8 +29,8 @@
     "rpc-websockets": "7.11.0",
     "@solana/web3.js": "1.88.0",
     "jito-ts": {
-      "@solana/web3.js": "1.88.0",
-      "rpc-websockets": "7.11.0"
+      "rpc-websockets": "7.11.0",
+      "@solana/web3.js": "1.88.0"
     }
   },
   "engines": {
