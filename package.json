@@ -8,6 +8,7 @@
     "setup": "npm install"
   },
   "dependencies": {
+    "jito-ts": "^0.0.10",
     "@triton-one/yellowstone-grpc": "^5.0.1",
     "@solana/web3.js": "^1.88.0",
     "ethers": "^6.7.1",
@@ -20,7 +21,8 @@
     "bs58": "^5.0.0",
     "ws": "^8.18.0",
     "sentiment": "^5.0.2",
-    "cross-fetch": "^4.0.0"
+    "cross-fetch": "^4.0.0",
+    "buffer": "^6.0.3"
   },
   "engines": {
     "node": ">=18.20.0"
