@@ -1,9 +1,11 @@
 {
   "name": "titan-flash-engine",
   "version": "204.6.1",
+  "description": "APEX PREDATOR v9076: High-Frequency Hybrid Sniper",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "setup": "npm install"
   },
   "dependencies": {
     "jito-ts": "4.1.1",
@@ -25,7 +27,11 @@
   },
   "overrides": {
     "rpc-websockets": "7.11.0",
-    "@solana/web3.js": "1.88.0"
+    "@solana/web3.js": "1.88.0",
+    "jito-ts": {
+      "@solana/web3.js": "1.88.0",
+      "rpc-websockets": "7.11.0"
+    }
   },
   "engines": {
     "node": ">=18.20.0"
