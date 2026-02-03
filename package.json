@@ -1,7 +1,6 @@
 {
   "name": "titan-flash-engine",
   "version": "204.6.1",
-  "description": "APEX PREDATOR v9076: High-Frequency Hybrid Sniper",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
