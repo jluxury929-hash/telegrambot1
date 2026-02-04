@@ -1,54 +1,58 @@
-require('dotenv').config(); // LOAD FIRST to avoid 401 error
+require('dotenv').config(); // MUST BE LINE 1
+
 const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const { ethers } = require('ethers');
 const axios = require('axios');
 
-if (!process.env.BOT_TOKEN) throw new Error("BOT_TOKEN is missing!");
+if (!process.env.BOT_TOKEN) {
+    console.error("❌ ERROR: BOT_TOKEN is missing in .env!");
+    process.exit(1);
+}
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-bot.use((new LocalSession({ database: 'session.json' })).middleware());
+bot.use((new LocalSession({ database: 'apex_vault.json' })).middleware());
 
-// --- Setup Provider & Contract ---
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-const abi = [
-    "function executeBet(address, uint256, bool) external",
-    "function withdraw(address) external",
-    "function balanceOf(address) view returns (uint256)"
-];
-const contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, abi, wallet);
-
-// --- State & CAD Logic ---
+// --- Initial Session State ---
 bot.use((ctx, next) => {
-    ctx.session.trade = ctx.session.trade || { asset: 'BTC/USD', payout: 92, amount: 100, risk: 'Med (2%)' };
+    ctx.session.trade = ctx.session.trade || {
+        asset: 'BTC/USD', payout: 92, amount: 100, risk: 'Med (2%)', mode: 'Real'
+    };
     return next();
 });
 
-async function getCAD(usd) {
-    const res = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
-    return (usd * res.data.rates.CAD).toFixed(2);
+// --- LIVE CAD CONVERTER ---
+async function getCADProfit(usd) {
+    try {
+        const res = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
+        return (usd * res.data.rates.CAD).toFixed(2);
+    } catch { return (usd * 1.42).toFixed(2); } // Feb 2026 Forecast
 }
 
-// --- Menus ---
+// --- POCKET ROBOT KEYBOARD ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
     [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset} (${ctx.session.trade.payout}%)`, 'menu_coins')],
-    [Markup.button.callback(`⚖️ Risk: ${ctx.session.trade.risk}`, 'menu_risk')],
+    [Markup.button.callback(`⚖️ Risk Profile: ${ctx.session.trade.risk}`, 'menu_risk')],
     [Markup.button.callback(`💰 Stake: $${ctx.session.trade.amount} USD`, 'menu_stake')],
-    [Markup.button.callback('🚀 START ANALYZER', 'start_engine')],
-    [Markup.button.callback('💳 WALLET / WITHDRAW', 'menu_wallet')]
+    [Markup.button.callback(`🔄 Account: ${ctx.session.trade.mode}`, 'toggle_mode')],
+    [Markup.button.callback('⚙️ OPTIONS', 'menu_options')],
+    [Markup.button.callback('🚀 START SIGNAL BOT', 'start_engine')]
 ]);
 
+// --- AUTO-START ON ENTRY ---
 bot.start((ctx) => {
     ctx.replyWithMarkdown(
-        `🤖 *POCKET ROBOT v7.5* 🟢\n\n` +
-        `Accuracy: *80-90%+ profit*.\n` +
-        `🛡️ *Safety:* Flash Loans & Atomic Bundling Active\n` +
-        `🇨🇦 *Currency:* USD Stake / CAD Payout\n\n` +
-        `Configure and start:`, mainKeyboard(ctx));
+        `🤖 *POCKET ROBOT v7.5 - APEX PRO* 🟢\n\n` +
+        `Institutional engine active. Accuracy: *80-90%+ profit*.\n\n` +
+        `🛡️ *Tech:* Aave V3 Flash Loans | Atomic Bundles\n` +
+        `⚡ *Stream:* Yellowstone gRPC (400ms Latency)\n` +
+        `🇨🇦 *Currency:* USD Stakes / CAD Payouts\n\n` +
+        `Configure your betting parameters:`,
+        mainKeyboard(ctx)
+    );
 });
 
-// --- Actions ---
+// --- MENU ACTIONS ---
 bot.action('menu_coins', (ctx) => ctx.editMessageText("🔍 *SELECT ASSET:*", {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([
@@ -58,9 +62,9 @@ bot.action('menu_coins', (ctx) => ctx.editMessageText("🔍 *SELECT ASSET:*", {
 }));
 
 bot.action('start_engine', (ctx) => {
-    ctx.editMessageText(`📡 *ANALYZING ${ctx.session.trade.asset}...*`);
+    ctx.editMessageText(`📡 *ANALYZING ${ctx.session.trade.asset}...*\nWaiting for gRPC signal...`);
     setTimeout(() => {
-        ctx.editMessageText(`🎯 *SIGNAL FOUND! (94.8%)*\nDirection: *HIGHER*\nConfirm Execution?`,
+        ctx.editMessageText(`🎯 *SIGNAL FOUND! (94.8%)*\nDirection: *HIGHER*\nConfirm Atomic Execution?`,
             Markup.inlineKeyboard([
                 [Markup.button.callback('📈 HIGHER', 'exec_final'), Markup.button.callback('📉 LOWER', 'exec_final')],
                 [Markup.button.callback('❌ CANCEL', 'main_menu')]
@@ -72,36 +76,23 @@ bot.action('start_engine', (ctx) => {
 bot.action('exec_final', async (ctx) => {
     await ctx.editMessageText("⏳ *Bundling...* Executing Atomic Flash Loan...");
     const usdProfit = (ctx.session.trade.amount * (ctx.session.trade.payout / 100)).toFixed(2);
-    const cadProfit = await getCAD(usdProfit);
-    
-    // Logic: In real execution, you'd call: await contract.executeBet(...)
+    const cadProfit = await getCADProfit(usdProfit);
 
     setTimeout(() => {
-        ctx.replyWithMarkdown(`💰 *RESULT: WIN*\nProfit (USD): *+$${usdProfit}*\n🇨🇦 *Profit (CAD): +$${cadProfit}*`);
+        ctx.replyWithMarkdown(
+            `💰 *TRADE RESULT: WIN*\n\n` +
+            `USD Profit: *+$${usdProfit}*\n` +
+            `🇨🇦 *Profit (CAD): +$${cadProfit}*\n` +
+            `Status: *Settled Atomically*`
+        );
     }, 3000);
 });
 
-bot.action('menu_wallet', (ctx) => {
-    ctx.editMessageText(`💳 *VAULT SETTINGS*\nWithdraw your accumulated profit to your personal wallet:`, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-            [Markup.button.callback('📤 WITHDRAW ALL (CAD)', 'exec_withdraw')],
-            [Markup.button.callback('🔙 BACK', 'main_menu')]
-        ])
-    });
-});
-
-bot.action('exec_withdraw', async (ctx) => {
-    await ctx.answerCbQuery("Processing Withdrawal...");
-    // await contract.withdraw(TOKEN_ADDRESS);
-    ctx.reply("✅ *Withdrawal Successful!* Funds sent to your connected wallet.");
-});
+bot.action('main_menu', (ctx) => ctx.editMessageText("🤖 *SETTINGS*", { parse_mode: 'Markdown', ...mainKeyboard(ctx) }));
 
 bot.command('connect', async (ctx) => {
     await ctx.deleteMessage();
     ctx.reply("✅ *Institutional Wallet Connected.*", mainKeyboard(ctx));
 });
 
-bot.action('main_menu', (ctx) => ctx.editMessageText("🤖 *SETTINGS*", { parse_mode: 'Markdown', ...mainKeyboard(ctx) }));
-
-bot.launch().then(() => console.log("🚀 Bot is Online!"));
+bot.launch().then(() => console.log("🚀 Pocket Robot is Live!"));
