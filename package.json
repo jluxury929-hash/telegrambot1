@@ -1,17 +1,36 @@
 {
-  "name": "pocket-robot-solana-apex",
-  "version": "7.5.0",
-  "description": "Institutional Solana Binary Options Robot",
-  "main": "server.js",
+  "name": "pocket-robot-atomic-pro",
+  "version": "9.2.0",
+  "description": "Atomic Jito Bundling Binary Options Bot on Solana",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "nodemon bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "solana",
+    "jito",
+    "mev",
+    "telegram-bot",
+    "pocket-robot",
+    "atomic-trades"
+  ],
+  "author": "Pocket Robot Dev Team",
+  "license": "MIT",
   "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "@solsdk/jito-ts": "^4.2.2",
     "telegraf": "^4.16.3",
     "telegraf-session-local": "^2.1.1",
-    "@solana/web3.js": "^2.0.0",
-    "bs58": "^6.0.0",
-    "axios": "^1.13.4",
-    "dotenv": "^17.2.3"
+    "dotenv": "^16.4.0",
+    "axios": "^1.7.0",
+    "bs58": "^6.0.0"
   },
-  "scripts": {
-    "start": "node server.js"
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
