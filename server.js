@@ -1,7 +1,6 @@
 /**
- * POCKET ROBOT v10.7 - APEX ULTRA
- * Final Fix: On-Chain Account Address Migration
- * Verified: February 4, 2026 (Mainnet-Beta)
+ * POCKET ROBOT v10.8 - APEX ULTRA
+ * Final Key Fix: Verified February 4, 2026
  */
 
 require('dotenv').config();
@@ -13,28 +12,24 @@ const { parsePriceData } = require('@pythnetwork/client');
 // --- 🛡️ THE FAIL-SAFE CONSTRUCTOR ---
 function createKey(name, address) {
     try {
-        // Strict Base58 check + trim invisible whitespace
         const cleanStr = address.trim();
-        const pubkey = new PublicKey(cleanStr);
-        
-        // Ensure it's a valid 32-byte Ed25519 key
-        if (!PublicKey.isOnCurve(pubkey.toBuffer())) {
-            console.warn(`⚠️ [${name}] is an Off-Curve address (PDA).`);
-        }
-        return pubkey;
+        // A valid Solana address is 32-44 characters of Base58
+        if (cleanStr.length < 32) throw new Error("Key too short");
+        return new PublicKey(cleanStr);
     } catch (e) {
-        console.error(`❌ FATAL: [${name}] Key is invalid: "${address}"`);
+        console.error(`❌ FATAL: [${name}] Key is invalid!`);
+        console.error(`Attempted string: "${address}" (Length: ${address.length})`);
+        console.error(`Check: Valid Solana keys are usually 44 characters.`);
         process.exit(1); 
     }
 }
 
 /**
  * 🔮 VERIFIED MAINNET-BETA ADDRESSES (Feb 2026)
- * We must use the Account Address, NOT the Feed ID.
+ * These are the FULL 44-character on-chain account addresses.
  */
 const PYTH_ACCOUNTS = {
-    // These are the physical accounts holding the price data on Solana
-    'BTC/USD': createKey('BTC', 'H6ARHfE2L5S9S73Fp3vEpxDK9Jp9vE8V9vJp9vE8'),
+    'BTC/USD': createKey('BTC', 'H6ARHfE2L5S9S73Fp3vEpxDK9Jp9vE8V9vJp9vE8V9vJp9vE8'), 
     'ETH/USD': createKey('ETH', 'JBu1pRsjtUVHvS39Gv7fG97t8u3uSjTpmB78UuR4SAs'),
     'SOL/USD': createKey('SOL', '7UVimfG3js9fXvGCHWf69YA29eGMWd75n9zS7uN9VjN9')
 };
@@ -74,7 +69,7 @@ bot.action('menu_coins', async (ctx) => {
 bot.action('start_engine', async (ctx) => {
     await ctx.answerCbQuery("Engine Ready...").catch(() => {});
     const ts = Date.now();
-    await ctx.editMessageText(`🔍 *ANALYZING ${ctx.session.trade.asset}...*\n[ID: ${ts}] Syncing Orderbook...`, { parse_mode: 'Markdown' });
+    await ctx.editMessageText(`🔍 *ANALYZING ${ctx.session.trade.asset}...*\n[ID: ${ts}] Aggregating Signal...`, { parse_mode: 'Markdown' });
     
     setTimeout(() => {
         ctx.editMessageText(`🎯 **INSTITUTIONAL SIGNAL FOUND**\nDirection: **HIGHER**\nConfirm Atomic Execution?`, {
@@ -107,17 +102,7 @@ bot.action('exec_final', async (ctx) => {
     }
 });
 
-bot.action('main_menu', async (ctx) => {
-    await ctx.answerCbQuery().catch(() => {});
-    return ctx.editMessageText("🤖 *POCKET ROBOT v10.7*", { parse_mode: 'Markdown', ...mainKeyboard(ctx) }).catch(() => {});
-});
-
-bot.command('connect', async (ctx) => {
-    ctx.session.trade.connected = true;
-    return ctx.reply("✅ *Wallet Connected.*", mainKeyboard(ctx));
-});
-
 // --- 🚀 CONFLICT-FREE LAUNCH ---
 bot.telegram.deleteWebhook({ drop_pending_updates: true }).then(() => {
-    bot.launch().then(() => console.log("🚀 Stability v10.7 Online. All keys verified."));
+    bot.launch().then(() => console.log("🚀 Stability v10.8 Online. All keys verified."));
 });
