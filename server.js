@@ -1,25 +1,39 @@
 /**
- * POCKET ROBOT v9.9.9 - FULL BUTTON FIX
- * 1. Fixed "Spinning" buttons with answerCbQuery()
- * 2. Fixed Session persistence with LocalSession
- * 3. Fixed Action Handlers to match Markup data
+ * POCKET ROBOT v9.9.9 - STABILITY BUILD
+ * 1. Global Error Handler (Prevents crashes)
+ * 2. Edit-Safety Wrapper (Prevents 400 Bad Request)
+ * 3. Atomic Session Initializer
  */
 
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
-const { Connection, PublicKey } = require('@solana/web3.js');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// --- 1. SESSION & STATE PERSISTENCE ---
-// This ensures that when you click "Asset", it actually saves your choice.
-bot.use((new LocalSession({ database: 'session.json' })).middleware());
+// --- 1. ROBUST SESSION CONFIG ---
+const localSession = new LocalSession({
+    database: 'session.json',
+    property: 'session',
+    state: { trade: { asset: 'BTC/USD', amount: 100, tip: 0.001, connected: false } }
+});
+bot.use(localSession.middleware());
 
-// --- 2. THE DYNAMIC KEYBOARD ---
+// --- 2. GLOBAL ERROR CATCHER (CRITICAL) ---
+// This stops the bot from dying if a single button click fails.
+bot.catch((err, ctx) => {
+    console.error(`🔴 BOT ERROR for ${ctx.updateType}:`, err.message);
+    if (err.message.includes('message is not modified')) {
+        return ctx.answerCbQuery("⚠️ No changes detected.");
+    }
+    ctx.answerCbQuery("❌ Error occurred. Please try again.").catch(() => {});
+});
+
+// --- 3. DYNAMIC KEYBOARD BUILDER ---
 const mainKeyboard = (ctx) => {
-    // We pull live data from the session to show on button labels
-    const { asset, tip, amount, connected } = ctx.session.trade;
+    // Safety check: ensure session exists before reading properties
+    const trade = ctx.session.trade || { asset: 'BTC/USD', amount: 100, tip: 0.001, connected: false };
+    const { asset, tip, amount, connected } = trade;
     
     return Markup.inlineKeyboard([
         [Markup.button.callback(`🪙 Asset: ${asset}`, 'menu_coins')],
@@ -30,70 +44,72 @@ const mainKeyboard = (ctx) => {
     ]);
 };
 
-// --- 3. RE-ENGINEERED BUTTON HANDLERS ---
+// --- 4. FAIL-SAFE ACTION HANDLERS ---
 
-// Toggle Asset
 bot.action('menu_coins', async (ctx) => {
-    const assets = ['BTC/USD', 'ETH/USD', 'SOL/USD'];
-    let currentIdx = assets.indexOf(ctx.session.trade.asset);
-    ctx.session.trade.asset = assets[(currentIdx + 1) % assets.length];
-    
-    // 🔥 FIX: Answer the callback to stop the "loading" spinner
-    await ctx.answerCbQuery(`Switched to ${ctx.session.trade.asset}`);
-    // 🔥 FIX: Edit the message to refresh the button labels
-    return ctx.editMessageReplyMarkup(mainKeyboard(ctx).reply_markup);
+    try {
+        const assets = ['BTC/USD', 'ETH/USD', 'SOL/USD'];
+        let currentIdx = assets.indexOf(ctx.session.trade.asset);
+        ctx.session.trade.asset = assets[(currentIdx + 1) % assets.length];
+        
+        await ctx.answerCbQuery(`Asset: ${ctx.session.trade.asset}`);
+        // We use .catch() here so if the edit fails, the bot doesn't crash.
+        return await ctx.editMessageReplyMarkup(mainKeyboard(ctx).reply_markup).catch(() => {});
+    } catch (e) { console.error(e); }
 });
 
-// Toggle Tip
 bot.action('toggle_tip', async (ctx) => {
-    const tips = [0.001, 0.005, 0.01];
-    let currentIdx = tips.indexOf(ctx.session.trade.tip);
-    ctx.session.trade.tip = tips[(currentIdx + 1) % tips.length];
-    
-    await ctx.answerCbQuery(`Tip adjusted to ${ctx.session.trade.tip} SOL`);
-    return ctx.editMessageReplyMarkup(mainKeyboard(ctx).reply_markup);
+    try {
+        const tips = [0.001, 0.005, 0.01];
+        let currentIdx = tips.indexOf(ctx.session.trade.tip);
+        ctx.session.trade.tip = tips[(currentIdx + 1) % tips.length];
+        
+        await ctx.answerCbQuery(`Tip: ${ctx.session.trade.tip} SOL`);
+        return await ctx.editMessageReplyMarkup(mainKeyboard(ctx).reply_markup).catch(() => {});
+    } catch (e) { console.error(e); }
 });
 
-// Wallet Info
 bot.action('wallet_info', async (ctx) => {
-    await ctx.answerCbQuery();
-    if (!ctx.session.trade.connected) {
-        return ctx.replyWithMarkdown("⚠️ *No Wallet Linked*\nUse `/connect` to link your institutional seed.");
-    }
-    return ctx.replyWithMarkdown("✅ *Wallet Active*\nReady for Atomic Execution.");
+    await ctx.answerCbQuery().catch(() => {});
+    const msg = ctx.session.trade.connected 
+        ? "✅ *Wallet Active*\nReady for Atomic Execution." 
+        : "⚠️ *No Wallet Linked*\nUse `/connect` to link your institutional seed.";
+    return ctx.replyWithMarkdown(msg);
 });
 
-// Start Engine (The Workflow)
 bot.action('start_engine', async (ctx) => {
-    await ctx.answerCbQuery("Searching for gRPC Signal...");
-    const ts = Date.now();
-    
-    await ctx.editMessageText(`🔍 *ANALYZING ${ctx.session.trade.asset}...*\n[ID: ${ts}] Fetching orderbook depth...`, {
-        parse_mode: 'Markdown'
-    });
-
-    setTimeout(() => {
-        ctx.editMessageText(`🎯 *SIGNAL FOUND*\nDirection: *HIGHER*\nConfirm Atomic Snipe?`, {
-            parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([
-                [Markup.button.callback('📈 HIGHER', 'exec_final'), Markup.button.callback('📉 LOWER', 'exec_final')],
-                [Markup.button.callback('🔙 CANCEL', 'main_menu')]
-            ])
+    try {
+        await ctx.answerCbQuery("Scanning...").catch(() => {});
+        const ts = Date.now();
+        
+        // Dynamic text ensures "Message not modified" never happens
+        await ctx.editMessageText(`🔍 *ANALYZING ${ctx.session.trade.asset}...*\n[ID: ${ts}] Fetching orderbook depth...`, {
+            parse_mode: 'Markdown'
         });
-    }, 1500);
+
+        setTimeout(() => {
+            ctx.editMessageText(`🎯 *SIGNAL FOUND*\nDirection: *HIGHER*\nConfirm Atomic Snipe?`, {
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('📈 HIGHER', 'exec_final'), Markup.button.callback('📉 LOWER', 'exec_final')],
+                    [Markup.button.callback('🔙 CANCEL', 'main_menu')]
+                ])
+            }).catch(() => {});
+        }, 1500);
+    } catch (e) { console.error(e); }
 });
 
-// Main Menu Return
 bot.action('main_menu', async (ctx) => {
-    await ctx.answerCbQuery();
+    await ctx.answerCbQuery().catch(() => {});
     return ctx.editMessageText("🤖 *POCKET ROBOT v9.9.9*", {
         parse_mode: 'Markdown',
         ...mainKeyboard(ctx)
-    });
+    }).catch(() => {});
 });
 
 // --- COMMANDS ---
 bot.start((ctx) => {
+    // Initialize session if it doesn't exist
     ctx.session.trade = ctx.session.trade || { asset: 'BTC/USD', amount: 100, tip: 0.001, connected: false };
     return ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v9.9.9*`, mainKeyboard(ctx));
 });
@@ -103,4 +119,4 @@ bot.command('connect', async (ctx) => {
     return ctx.reply("✅ *Wallet successfully linked.*", mainKeyboard(ctx));
 });
 
-bot.launch().then(() => console.log("🚀 All buttons fixed and responsive."));
+bot.launch().then(() => console.log("🚀 Stability v9.9.9 is Online."));
