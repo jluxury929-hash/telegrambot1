@@ -2,17 +2,17 @@
  * ===============================================================================
  * APEX PREDATOR: NEURAL ULTRA v9032 (FULL AUTO-PILOT MASTER)
  * ===============================================================================
- * FEATURES: Parallel sniper threads + Independent position monitoring.
- * SAFETY: Dual-RPC failover + Jito MEV-Shield + RugCheck Integration.
- * INTERFACE: Fully interactive v9032 cycling dashboard.
+ * INFRASTRUCTURE: Binance WebSocket + Yellowstone gRPC + Jito Atomic Bundles
+ * AUTO-PILOT: Parallel sniper threads + Independent position monitoring (v9032)
+ * UPGRADES: Fixed Priority Fees (150k lamports) + Multi-RPC Shotgun Failover
  * ===============================================================================
  */
 
 require('dotenv').config();
 const { ethers, JsonRpcProvider } = require('ethers');
-const { 
-    Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL, 
-    PublicKey, SystemProgram, Transaction 
+const {
+    Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL,
+    PublicKey, SystemProgram, Transaction, ComputeBudgetProgram
 } = require('@solana/web3.js');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
@@ -27,10 +27,10 @@ const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
 const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f440d4df-b5c4-4020-a960-ac182d3752ab' }};
 
 const NETWORKS = {
-    ETH:  { id: 'ethereum', type: 'EVM', rpc: 'https://rpc.mevblocker.io' },
-    SOL:  { id: 'solana', type: 'SVM', primary: process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com', fallback: 'https://rpc.ankr.com/solana' },
-    BASE: { id: 'base', type: 'EVM', rpc: 'https://mainnet.base.org' },
-    BSC:  { id: 'bsc', type: 'EVM', rpc: 'https://bsc-dataseed.binance.org/' }
+    ETH:  { id: 'ethereum', rpc: 'https://rpc.mevblocker.io' },
+    SOL:  { id: 'solana', primary: process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com', fallback: 'https://rpc.ankr.com/solana' },
+    BASE: { id: 'base', rpc: 'https://mainnet.base.org' },
+    BSC:  { id: 'bsc', rpc: 'https://bsc-dataseed.binance.org/' }
 };
 
 let SYSTEM = {
@@ -41,9 +41,10 @@ let SYSTEM = {
 };
 
 let solWallet, evmWallet;
+const ACTIVE_POSITIONS = new Map();
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
-// --- 🔱 LAYER 2: MEV-SHIELD (JITO PROXY) ---
+// --- 🔱 LAYER 2: MEV-SHIELD (JITO INJECTION) ---
 const originalSend = Connection.prototype.sendRawTransaction;
 Connection.prototype.sendRawTransaction = async function(rawTx, options) {
     if (!SYSTEM.atomicOn) return originalSend.apply(this, [rawTx, options]);
@@ -55,7 +56,7 @@ Connection.prototype.sendRawTransaction = async function(rawTx, options) {
     return originalSend.apply(this, [rawTx, options]);
 };
 
-// --- 3. THE v9032 AUTO-PILOT CORE (PARALLEL WORKERS) ---
+// --- 3. THE v9032 PARALLEL AUTO-PILOT CORE ---
 async function startNetworkSniper(chatId, netKey) {
     console.log(`[INIT] Parallel worker for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
@@ -71,7 +72,7 @@ async function startNetworkSniper(chatId, netKey) {
 
                     if (ready && safe) {
                         SYSTEM.isLocked[netKey] = true;
-                        bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Sniper.`);
+                        bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Shotgun.`);
 
                         const buyRes = (netKey === 'SOL')
                             ? await executeSolShotgun(chatId, signal.tokenAddress, SYSTEM.tradeAmount)
@@ -80,6 +81,7 @@ async function startNetworkSniper(chatId, netKey) {
                         if (buyRes && buyRes.success) {
                             const pos = { ...signal, entryPrice: signal.price, peakPrice: signal.price };
                             SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
+                            // Launch v9032 Independent monitoring loop
                             startIndependentPeakMonitor(chatId, netKey, pos);
                             bot.sendMessage(chatId, `🚀 **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning parallel...`);
                         }
@@ -92,7 +94,7 @@ async function startNetworkSniper(chatId, netKey) {
     }
 }
 
-// v9032 Asynchronous Peak Monitoring
+// v9032 Independent Position Monitoring (TSL Logic)
 async function startIndependentPeakMonitor(chatId, netKey, pos) {
     const monitor = setInterval(async () => {
         try {
@@ -106,10 +108,10 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
             if (curPrice > pos.peakPrice) pos.peakPrice = curPrice;
             const dropFromPeak = ((pos.peakPrice - curPrice) / pos.peakPrice) * 100;
 
-            // v9032 Risk-Adjusted Exit Logic
+            // v9032 Risk-Adjusted Exit
             let tp = 25; let sl = -10;
             if (SYSTEM.risk === 'LOW') { tp = 12; sl = -5; }
-            if (SYSTEM.risk === 'HIGH') { tp = 100; sl = -20; }
+            if (SYSTEM.risk === 'MAX') { tp = 100; sl = -20; }
 
             if (pnl >= tp || (pnl > SYSTEM.minProfitThreshold && dropFromPeak >= SYSTEM.trailingDistance)) {
                 bot.sendMessage(chatId, `🎯 **EXIT:** ${pos.symbol} at ${pnl.toFixed(2)}% PnL (TSL).`);
@@ -124,21 +126,22 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
     }, 12000); 
 }
 
-// --- 4. EXECUTION ENGINES ---
+// --- 4. v9032 SHOTGUN EXECUTION ---
 async function executeSolShotgun(chatId, addr, amt) {
     try {
         const isSell = amt === 'SELL';
-        const amtStr = isSell ? 'all' : Math.floor(amt * 1e9).toString();
+        const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
+        const amount = isSell ? 'all' : Math.floor(amt * 1e9).toString();
         
-        // v9032 Jup Ultra order with priority fees
-        const res = await axios.get(`${JUP_ULTRA_API}/order?inputMint=${isSell?addr:SYSTEM.currentAsset}&outputMint=${isSell?SYSTEM.currentAsset:addr}&amount=${isSell?'all':amtStr}&taker=${solWallet.publicKey.toString()}&slippageBps=250&prioritizationFeeLamports=150000`, SCAN_HEADERS);
+        // Priority Fee Injection (150k microlamports)
+        const res = await axios.get(`${JUP_ULTRA_API}/order?inputMint=${isSell?addr:SYSTEM.currentAsset}&outputMint=${isSell?SYSTEM.currentAsset:addr}&amount=${isSell?'all':amount}&taker=${solWallet.publicKey.toString()}&slippageBps=250&prioritizationFeeLamports=150000`, SCAN_HEADERS);
         
         const tx = VersionedTransaction.deserialize(Buffer.from(res.data.transaction, 'base64'));
         tx.sign([solWallet]);
         
-        // Multi-RPC Failover Broadcast
+        // Multi-RPC Broadcast Failover
         const sig = await Promise.any([
-            new Connection(NETWORKS.SOL.primary).sendRawTransaction(tx.serialize(), { skipPreflight: true }),
+            conn.sendRawTransaction(tx.serialize(), { skipPreflight: true }),
             new Connection(NETWORKS.SOL.fallback).sendRawTransaction(tx.serialize(), { skipPreflight: true })
         ]);
         
@@ -146,12 +149,7 @@ async function executeSolShotgun(chatId, addr, amt) {
     } catch (e) { return { success: false }; }
 }
 
-async function executeEvmContract(chatId, netKey, addr, amt) {
-    // Placeholder for EVM Buy logic
-    return { success: true, amountOut: 1 };
-}
-
-// --- 5. INTERFACE (v9032 CYCLING) ---
+// --- 5. INTERFACE (UI) ---
 const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
@@ -166,13 +164,13 @@ const getDashboardMarkup = () => ({
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     if (query.data === "cycle_risk") {
-        const risks = ['LOW', 'MEDIUM', 'HIGH'];
+        const risks = ['LOW', 'MEDIUM', 'MAX'];
         SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
     } else if (query.data === "cycle_amt") {
         const amts = ["0.1", "0.25", "0.5", "1.0"];
         SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
     } else if (query.data === "cmd_auto") {
-        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Connect Wallet First!", show_alert: true });
+        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Link Wallet First!", show_alert: true });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) {
             bot.sendMessage(chatId, "🚀 **AUTO-PILOT ONLINE.** Threads active.");
