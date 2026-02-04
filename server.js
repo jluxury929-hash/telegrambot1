@@ -76,7 +76,7 @@ async function executePocketShotgun(chatId, tokenAddr, amount, symbol) {
         tipTx.sign([solWallet]);
 
         // 3. BLAST BUNDLE
-        const bundleId = await sendAtomicPocketBundle([swapTx.serialize(), tipTx.serialize()]);
+        const bundleId = await sendPocketBundle([swapTx.serialize(), tipTx.serialize()]);
 
         if (bundleId) {
             bot.sendMessage(chatId, `✅ <b>TRADE EXECUTED</b>\n\n<b>Result:</b> SUCCESS\n<b>Asset:</b> ${symbol}\n<b>Amount:</b> ${amount} SOL\n<b>Bundle ID:</b> <code>${bundleId.substring(0,12)}...</code>\n\n🚀 <i>Monitoring for ${SYSTEM.minPayout}% Payout Target...</i>`, { parse_mode: 'HTML' });
@@ -118,6 +118,17 @@ const getDashboardMarkup = () => ({
     }
 });
 
+// --- NEW: /amount <value> command ---
+bot.onText(/\/amount (.+)/, (msg, match) => {
+    const value = match[1].trim();
+    if (!isNaN(value) && parseFloat(value) > 0) {
+        SYSTEM.tradeAmount = value;
+        bot.sendMessage(msg.chat.id, `⚙️ <b>CONFIG UPDATED</b>\n\n<b>Trade Amount:</b> ${SYSTEM.tradeAmount} SOL\n<b>Status:</b> Applied to next signal.`, { parse_mode: 'HTML', ...getDashboardMarkup() });
+    } else {
+        bot.sendMessage(msg.chat.id, `❌ <b>ERROR</b>\n\nInvalid amount. Use: <code>/amount 0.5</code>`, { parse_mode: 'HTML' });
+    }
+});
+
 bot.on('callback_query', async (q) => {
     const chatId = q.message.chat.id;
     if (q.data === "cmd_auto") {
@@ -136,7 +147,7 @@ bot.on('callback_query', async (q) => {
 });
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, `🎮 <b>POCKET ROBOT v9032 AI TRADER</b>\n\nWelcome to the Private Neural Hub.\n\n<b>Current Payout:</b> ${SYSTEM.minPayout}%\n<b>Protection:</b> Jito Atomic Reversal\n<b>Status:</b> System Ready`, { parse_mode: 'HTML', ...getDashboardMarkup() });
+    bot.sendMessage(msg.chat.id, `🎮 <b>POCKET ROBOT v9032 AI TRADER</b>\n\nWelcome to the Private Neural Hub.\n\n<b>Current Payout:</b> ${SYSTEM.minPayout}%\n<b>Protection:</b> Jito Atomic Reversal\n<b>Status:</b> System Ready\n\nUse <code>/amount &lt;value&gt;</code> to set a custom trade size.`, { parse_mode: 'HTML', ...getDashboardMarkup() });
 });
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
