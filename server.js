@@ -1,23 +1,22 @@
-// 1. LOAD DOTENV FIRST - THIS FIXES YOUR 401 ERROR
+// 1. LOAD DOTENV FIRST
 require('dotenv').config();
 
 const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
-const { ethers } = require('ethers'); 
+const { ethers } = require('ethers'); // This will now work
 const axios = require('axios');
 
 if (!process.env.BOT_TOKEN) {
-    console.error("❌ ERROR: BOT_TOKEN is missing in .env file!");
+    console.error("❌ ERROR: BOT_TOKEN missing in .env!");
     process.exit(1);
 }
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use((new LocalSession({ database: 'session.json' })).middleware());
 
-// --- 🛠️ REAL MODE ENGINE ---
+// --- 🛠️ BLOCKCHAIN CONNECTION (The "Real Money" Engine) ---
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || "");
 const wallet = process.env.PRIVATE_KEY ? new ethers.Wallet(process.env.PRIVATE_KEY, provider) : null;
-// The ABI matches the "PocketRobotBinary.sol" contract
 const ABI = ["function executeAtomicBet(uint256 amount, bool isHigher) external"];
 const contract = (process.env.CONTRACT_ADDRESS && wallet) ? new ethers.Contract(process.env.CONTRACT_ADDRESS, ABI, wallet) : null;
 
@@ -38,28 +37,15 @@ async function getCADProfit(usd) {
 }
 
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
-    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset} (${ctx.session.trade.payout}%)`, 'menu_coins')],
-    [Markup.button.callback(`⚖️ Risk: ${ctx.session.trade.risk}`, 'menu_risk')],
+    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset}`, 'menu_coins')],
     [Markup.button.callback(`💰 Stake: $${ctx.session.trade.amount} USD`, 'menu_stake')],
-    [Markup.button.callback(`🔄 Account: ${ctx.session.trade.mode}`, 'toggle_mode')],
+    [Markup.button.callback(`🔄 Mode: ${ctx.session.trade.mode}`, 'toggle_mode')],
     [Markup.button.callback('🚀 START SIGNAL BOT', 'start_engine')],
     [Markup.button.callback('💳 WITHDRAW TO WALLET', 'exec_withdraw')]
 ]);
 
 bot.start((ctx) => {
-    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v7.5 - APEX PRO* 🟢\n\n*Tech:* Aave V3 + Atomic Bundles\n*Currency:* USD Stakes / CAD Payouts`, mainKeyboard(ctx));
-});
-
-bot.action('start_engine', async (ctx) => {
-    await ctx.answerCbQuery("Scanning gRPC signal...");
-    await ctx.editMessageText(`📡 *ANALYZING ${ctx.session.trade.asset}...*`);
-    setTimeout(() => {
-        ctx.editMessageText(`🎯 *SIGNAL: 94.8% CONFIDENCE*\nDirection: *HIGHER*\n\nConfirm Atomic Execution?`,
-            Markup.inlineKeyboard([
-                [Markup.button.callback('📈 HIGHER', 'exec_up'), Markup.button.callback('📉 LOWER', 'exec_down')],
-                [Markup.button.callback('❌ CANCEL', 'main_menu')]
-            ]));
-    }, 2000);
+    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v7.5* 🟢\n*Binary Atomic Engine Ready*`, mainKeyboard(ctx));
 });
 
 // --- 🚀 REAL BINARY EXECUTION ---
@@ -70,19 +56,27 @@ bot.action(['exec_up', 'exec_down'], async (ctx) => {
     if (ctx.session.trade.mode === 'Real' && contract) {
         await ctx.editMessageText("⏳ *REAL MODE:* Broadcasting Atomic Bundle...");
         try {
-            // USDC usually has 6 decimals on Base/Polygon
-            const amount = ethers.parseUnits(ctx.session.trade.amount.toString(), 6);
+            const amount = ethers.parseUnits(ctx.session.trade.amount.toString(), 6); // USDC 6 decimals
+            
+            // This sends the REAL transaction to the blockchain
             const tx = await contract.executeAtomicBet(amount, isHigher);
-            await tx.wait(); // Wait for confirmation
+            await tx.wait(); 
 
-            const cad = await getCADProfit(ctx.session.trade.amount * (ctx.session.trade.payout / 100));
-            ctx.replyWithMarkdown(`💰 *TRADE RESULT: WIN*\nProfit: *+$${cad} CAD*\nStatus: *Settled Atomically*`);
+            const usdProfit = (ctx.session.trade.amount * (ctx.session.trade.payout / 100)).toFixed(2);
+            const cadProfit = await getCADProfit(usdProfit);
+            ctx.replyWithMarkdown(`💰 *TRADE RESULT: WIN*\nProfit: *+$${cadProfit} CAD*\nStatus: *Settled Atomically*`);
         } catch (e) {
-            ctx.reply("🛡️ *ATOMIC PROTECTION:* Trade reverted. You lost $0 because the contract cancelled the transaction when the target wasn't met.");
+            ctx.reply("🛡️ *ATOMIC PROTECTION:* Trade Reverted. The price didn't match the prediction, so the transaction was cancelled by the smart contract. $0 lost.");
         }
     } else {
         ctx.reply("💰 *DEMO WIN:* +$141.00 CAD (Simulated)");
     }
 });
 
-bot.launch().then(() => console.log("🚀 Pocket Robot is Live & Snappy!"));
+bot.action('toggle_mode', async (ctx) => {
+    await ctx.answerCbQuery();
+    ctx.session.trade.mode = ctx.session.trade.mode === 'Real' ? 'Demo' : 'Real';
+    await ctx.editMessageText("🤖 *SETTINGS*", { parse_mode: 'Markdown', ...mainKeyboard(ctx) });
+});
+
+bot.launch().then(() => console.log("🚀 Pocket Robot Online & Connected!"));
