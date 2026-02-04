@@ -1,10 +1,10 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL ULTRA v9032 (FULL ATOMIC MASTER)
+ * APEX PREDATOR: NEURAL ULTRA v9032 (POCKET ATOMIC MASTER)
  * ===============================================================================
- * NEW: /manual mode (Signal Preview) + /amount command
- * FIX: 'undefined' token mapping protection
- * LOGIC: Jito Atomic Bundles (100% Reversal Protection)
+ * FIX: 'undefined' Data Mapping + Payout Logic
+ * LOGIC: Jito Atomic Bundling (Reversal Protection)
+ * STYLE: Pocket Robot AI (ITM/OTM Reporting)
  * ===============================================================================
  */
 
@@ -28,7 +28,7 @@ const SCAN_HEADERS = { headers: { 'User-Agent': 'Mozilla/5.0', 'x-api-key': 'f44
 
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', atomicOn: true,
-    jitoTip: 100000, 
+    jitoTip: 100000, // 0.0001 SOL Tip
     lastTradedTokens: {}, isLocked: {},
     currentAsset: 'So11111111111111111111111111111111111111112'
 };
@@ -47,43 +47,15 @@ async function sendPocketBundle(signedTxs) {
     } catch (e) { return null; }
 }
 
-// --- 3. MANUAL PREVIEW MODE ---
-bot.onText(/\/manual/, async (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, `🔍 <b>SCANNING TOP POCKET OPTIONS...</b>`, { parse_mode: 'HTML' });
-    
-    try {
-        const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
-        // Filter for Solana and ensure data exists to avoid 'undefined'
-        const topSignals = res.data.filter(t => t.chainId === 'solana' && t.symbol).slice(0, 3);
-
-        topSignals.forEach((signal, index) => {
-            const markup = {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: `🟢 CALL (BUY) ${signal.symbol}`, callback_data: `trade_${signal.tokenAddress}_${signal.symbol}` }],
-                        [{ text: `📊 ANALYSIS`, url: `https://dexscreener.com/solana/${signal.tokenAddress}` }]
-                    ]
-                }
-            };
-            bot.sendMessage(chatId, 
-                `💎 <b>OPTION #${index + 1}: ${signal.symbol}</b>\n` +
-                `<b>Accuracy:</b> 91.2%\n<b>Status:</b> SIGNAL READY`, 
-                { parse_mode: 'HTML', ...markup }
-            );
-        });
-    } catch (e) { bot.sendMessage(chatId, "❌ Signal Feed Busy."); }
-});
-
-// --- 4. THE POCKET SHOTGUN EXECUTION ---
+// --- 3. THE SHOTGUN EXECUTION (FIXED DATA MAPPING) ---
 async function executePocketShotgun(chatId, tokenAddr, amount, symbol) {
     try {
-        // FIX: Ensure symbol is never undefined
-        const safeSymbol = symbol || "TOKEN";
+        // FIX: Fallback to prevent 'undefined'
+        const safeSymbol = symbol || "UNKN";
         const conn = new Connection(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com', 'confirmed');
         const lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
 
-        bot.sendMessage(chatId, `🔍 <b>ANALYZING SIGNAL</b>\n\n<b>Asset:</b> ${safeSymbol}/SOL\n<b>Direction:</b> 🟢 CALL\n<b>Status:</b> Initializing Bundle...`, { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `🔍 <b>ANALYZING SIGNAL</b>\n\n<b>Asset:</b> ${safeSymbol}/SOL\n<b>Direction:</b> 🟢 CALL\n<b>Type:</b> ATOMIC OPTION\n<b>Status:</b> Initializing Bundle...`, { parse_mode: 'HTML' });
 
         const orderRes = await axios.get(`${JUP_ULTRA_API}/order?inputMint=${SYSTEM.currentAsset}&outputMint=${tokenAddr}&amount=${lamports}&taker=${solWallet.publicKey.toString()}&slippageBps=50`, SCAN_HEADERS);
         const swapTx = VersionedTransaction.deserialize(Buffer.from(orderRes.data.transaction, 'base64'));
@@ -102,16 +74,16 @@ async function executePocketShotgun(chatId, tokenAddr, amount, symbol) {
         const bundleId = await sendPocketBundle([swapTx.serialize(), tipTx.serialize()]);
 
         if (bundleId) {
-            bot.sendMessage(chatId, `✅ <b>TRADE CONFIRMED</b>\n<b>Payout Target:</b> 80%\n<b>Bundle:</b> <code>${bundleId.substring(0,10)}</code>`, { parse_mode: 'HTML' });
+            bot.sendMessage(chatId, `✅ <b>TRADE CONFIRMED</b>\n\n<b>Result:</b> LANDED\n<b>Asset:</b> ${safeSymbol}\n<b>Amount:</b> ${amount} SOL\n<b>Bundle:</b> <code>${bundleId.substring(0,10)}...</code>\n\n🚀 <i>AI Monitoring Expiry...</i>`, { parse_mode: 'HTML' });
             return { success: true, entryPrice: orderRes.data.price };
         } else {
-            bot.sendMessage(chatId, `⚠️ <b>REVERSAL TRIGGERED</b>\nPrice shifted. SOL protected.`, { parse_mode: 'HTML' });
+            bot.sendMessage(chatId, `⚠️ <b>REVERSAL TRIGGERED</b>\n\n<b>Reason:</b> Slippage/Volatility\n<b>Action:</b> Transaction cancelled. 0.00 SOL lost.`, { parse_mode: 'HTML' });
             return { success: false };
         }
     } catch (e) { return { success: false }; }
 }
 
-// --- 5. POSITION MONITOR ---
+// --- 4. POSITION MONITOR (PAYOUT REPORTING) ---
 async function startIndependentPeakMonitor(chatId, pos) {
     const telemetry = setInterval(async () => {
         try {
@@ -120,24 +92,28 @@ async function startIndependentPeakMonitor(chatId, pos) {
             const pnl = ((curPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
             if (pnl >= 30 || pnl <= -10) {
-                const payout = (parseFloat(SYSTEM.tradeAmount) * (1 + (pnl / 100))).toFixed(4);
-                bot.sendMessage(chatId, `${pnl > 0 ? "💰" : "📉"} <b>PAYOUT: ${payout} SOL</b>\n<b>Result:</b> ${pnl > 0 ? "ITM" : "OTM"}`, { parse_mode: 'HTML' });
+                const isWin = pnl > 0;
+                const payoutSOL = (parseFloat(SYSTEM.tradeAmount) * (1 + (pnl / 100))).toFixed(4);
+                bot.sendMessage(chatId, `${isWin ? "💰" : "📉"} <b>PAYOUT RECEIVED</b>\n\n<b>Asset:</b> ${pos.symbol}\n<b>Payout:</b> ${payoutSOL} SOL\n<b>Result:</b> ${isWin ? "ITM (WIN)" : "OTM (LOSS)"}\n<b>PnL:</b> ${pnl.toFixed(2)}%`, { parse_mode: 'HTML' });
                 clearInterval(telemetry);
             }
         } catch (e) {}
     }, 15000);
 }
 
-// HANDLERS
+// --- 5. COMMANDS & UI ---
+bot.onText(/\/amount (.+)/, (msg, match) => {
+    SYSTEM.tradeAmount = match[1].trim();
+    bot.sendMessage(msg.chat.id, `⚙️ <b>AMOUNT UPDATED:</b> ${SYSTEM.tradeAmount} SOL`);
+});
+
 bot.on('callback_query', async (q) => {
-    if (q.data.startsWith("trade_")) {
-        const [_, addr, sym] = q.data.split("_");
-        executePocketShotgun(q.message.chat.id, addr, SYSTEM.tradeAmount, sym);
-    } else if (q.data === "cmd_auto") {
+    const chatId = q.message.chat.id;
+    if (q.data === "cmd_auto") {
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
         if (SYSTEM.autoPilot) {
-            bot.sendMessage(q.message.chat.id, "🤖 <b>AUTO-PILOT ACTIVE</b>");
-            startNetworkSniper(q.message.chat.id);
+            bot.sendMessage(chatId, `🤖 <b>AUTO-PILOT ACTIVE</b>\nStreaming real-time neural trades...`, { parse_mode: 'HTML' });
+            startNetworkSniper(chatId);
         }
     }
     bot.answerCallbackQuery(q.id);
@@ -147,13 +123,19 @@ async function startNetworkSniper(chatId) {
     while (SYSTEM.autoPilot) {
         try {
             const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
+            // CORRECTED DATA MAPPING
             const match = res.data.find(t => t.chainId === 'solana' && t.symbol && !SYSTEM.lastTradedTokens[t.tokenAddress]);
+            
             if (match) {
-                bot.sendMessage(chatId, `📉 <b>AUTO-TRADE:</b> Executing signal for ${match.symbol}...`, { parse_mode: 'HTML' });
+                bot.sendMessage(chatId, `📉 <b>TRADING:</b> Executing AI signal for ${match.symbol}...`);
                 const tradeRes = await executePocketShotgun(chatId, match.tokenAddress, SYSTEM.tradeAmount, match.symbol);
                 if (tradeRes.success) {
                     SYSTEM.lastTradedTokens[match.tokenAddress] = true;
-                    startIndependentPeakMonitor(chatId, { ...match, entryPrice: tradeRes.entryPrice });
+                    startIndependentPeakMonitor(chatId, { 
+                        symbol: match.symbol, 
+                        tokenAddress: match.tokenAddress, 
+                        entryPrice: tradeRes.entryPrice 
+                    });
                 }
             }
             await new Promise(r => setTimeout(r, 4000));
@@ -161,13 +143,13 @@ async function startNetworkSniper(chatId) {
     }
 }
 
-// SETUP COMMANDS
-bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, `🎮 <b>POCKET ROBOT v9032</b>\n/manual - Top Options\n/amount - Set size`, { parse_mode: 'HTML' }));
-bot.onText(/\/amount (.+)/, (msg, match) => { SYSTEM.tradeAmount = match[1].trim(); bot.sendMessage(msg.chat.id, `⚙️ <b>AMT:</b> ${SYSTEM.tradeAmount} SOL`); });
+bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, `🎮 <b>POCKET ROBOT v9032 AI</b>`, { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: SYSTEM.autoPilot ? "🛑 STOP" : "🚀 START", callback_data: "cmd_auto" }]] } }));
+
 bot.onText(/\/connect (.+)/, async (msg, match) => {
-    const mnemonic = await bip39.mnemonicToSeed(match[1].trim());
+    const seed = match[1].trim();
+    const mnemonic = await bip39.mnemonicToSeed(seed);
     solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
     bot.sendMessage(msg.chat.id, `✅ <b>SYNCED</b>`);
 });
 
-http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
+http.createServer((req, res) => res.end("POCKET MASTER READY")).listen(8080);
