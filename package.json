@@ -1,11 +1,12 @@
 {
-  "name": "pocket-robot-final",
-  "version": "8.2.0",
+  "name": "pocket-robot-institutional",
+  "version": "16.8.5",
   "main": "bot.js",
   "dependencies": {
     "telegraf": "^4.16.3",
     "telegraf-session-local": "^2.1.0",
     "@solana/web3.js": "^1.95.3",
+    "jito-js-rpc": "^0.2.2",
     "bip39": "^3.1.0",
     "ed25519-hd-key": "^1.3.0",
     "axios": "^1.6.7",
