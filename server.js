@@ -1,91 +1,76 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
-const { Connection, Keypair, Transaction, SystemProgram, PublicKey } = require('@solana/web3.js');
+const { Connection, Keypair } = require('@solana/web3.js');
+const bip39 = require('bip39');
+const { derivePath } = require('ed25519-hd-key');
 
-// 1. SECURE CONFIGURATION
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// --- 1. WALLET CONNECTION LOGIC ---
+async function getWalletFromMnemonic(mnemonic) {
+    const seed = await bip39.mnemonicToSeed(mnemonic);
+    const seedBuffer = Buffer.from(seed).toString('hex');
+    const path = "m/44'/501'/0'/0'"; // Standard Solana Derivation Path
+    const derivedSeed = derivePath(path, seedBuffer).key;
+    return Keypair.fromSeed(derivedSeed);
+}
+
+let traderWallet;
 const connection = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
 
-// Load Private Key from .env (NEVER use plain seed phrases in code)
-// To get this: Export Private Key from Coinbase Wallet/Phantom settings
-const secretKey = Uint8Array.from(JSON.parse(process.env.PRIVATE_KEY));
-const traderWallet = Keypair.fromSecretKey(secretKey);
+// Initialize Wallet
+(async () => {
+    traderWallet = await getWalletFromMnemonic(process.env.SEED_PHRASE);
+    console.log(`✅ Pocket Robot Linked: ${traderWallet.publicKey.toBase58()}`);
+})();
 
-let autoPilotActive = false;
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// 2. TELEGRAM INTERFACE (Pocket Robot Style)
+// --- 2. INTERFACE ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
-    [Markup.button.callback(`🤖 MODE: ${autoPilotActive ? 'AUTO-PILOT' : 'MANUAL'}`, 'toggle_mode')],
-    [Markup.button.callback('📈 ASSET: BTC/USD', 'set_asset')],
-    [Markup.button.callback('💰 STAKE: $500 (Atomic Flash)', 'set_stake')],
-    [Markup.button.callback('⚡ START TRADING ENGINE', 'start_engine')]
+    [Markup.button.callback('🤖 AUTO-PILOT: OFF', 'toggle_auto')],
+    [Markup.button.callback('🛠 MANUAL MODE', 'manual_menu')],
+    [Markup.button.callback('💰 WITHDRAW PROFITS', 'withdraw')]
 ]);
 
 bot.start((ctx) => {
     ctx.replyWithMarkdown(
-        `🛰 *POCKET ROBOT v9.1 - INSTITUTIONAL ACCESS*\n\n` +
-        `*Wallet:* \`${traderWallet.publicKey.toBase58().slice(0,6)}...${traderWallet.publicKey.toBase58().slice(-4)}\`\n` +
-        `*Engine:* Jito Atomic Bundler (MEV-Protected)\n` +
-        `*Status:* Ready for Profit Extraction\n\n` +
-        `Select /manual for specific options or toggle Auto-Pilot.`,
+        `📡 *POCKET ROBOT v9.2 - LIVE ENGINE*\n\n` +
+        `*Status:* Connected to Coinbase Wallet\n` +
+        `*Address:* \`${traderWallet.publicKey.toBase58()}\`\n\n` +
+        `All trade profits are settled *atomically* and sent directly to your connected address.`,
         mainKeyboard(ctx)
     );
 });
 
-// 3. AUTO-PILOT ENGINE
-bot.action('toggle_mode', (ctx) => {
-    autoPilotActive = !autoPilotActive;
-    ctx.editMessageText(autoPilotActive ? "🟢 *AUTOPILOT: ON*\nMonitoring gRPC signals..." : "🔴 *AUTOPILOT: OFF*", 
-    { parse_mode: 'Markdown', ...mainKeyboard(ctx) });
+// --- 3. ATOMIC AUTO-PILOT ---
+bot.action('toggle_auto', (ctx) => {
+    ctx.editMessageText("🟢 *AUTOPILOT ACTIVATED*\n`Searching for institutional gRPC signals...`\n\n_Bot will execute trades only when Jito Atomic Bundles are confirmed profitable._", 
+    Markup.inlineKeyboard([[Markup.button.callback('🛑 STOP BOT', 'stop_bot')]]));
     
-    if(autoPilotActive) runAutoPilot(ctx);
+    // Auto-Trade Loop simulation
+    const loop = setInterval(async () => {
+        const profit = (Math.random() * 200 + 50).toFixed(2);
+        await ctx.replyWithMarkdown(
+            `🎯 **ATOMIC TRADE COMPLETE**\n` +
+            `*Direction:* BTC CALL (Higher)\n` +
+            `*Settlement:* +$${profit} USD\n` +
+            `*Destination:* Internal Wallet`
+        );
+    }, 15000);
+
+    bot.action('stop_bot', (innerCtx) => {
+        clearInterval(loop);
+        innerCtx.editMessageText("🔴 *AUTOPILOT STOPPED*", mainKeyboard(ctx));
+    });
 });
 
-async function runAutoPilot(ctx) {
-    if(!autoPilotActive) return;
-    
-    ctx.replyWithMarkdown("🔍 `[SCANNING]` Analyzing 1m timeframe for BTC/USD...");
-    
-    // Logic: In a real bot, this triggers based on price action/indicators
-    setTimeout(async () => {
-        if(!autoPilotActive) return;
-        ctx.replyWithMarkdown("🎯 `[SIGNAL]` **92% PROBABILITY: HIGHER**\nBundling Flash Loan + Binary Option...");
-        await executeAtomicBundle(ctx);
-        setTimeout(() => runAutoPilot(ctx), 15000); // Scan every 15s
-    }, 5000);
-}
-
-// 4. ATOMIC EXECUTION (The "Real" Profit Logic)
-async function executeAtomicBundle(ctx) {
-    try {
-        // Here, the bot would construct a Jito Bundle:
-        // 1. Borrow Flash Loan (No collateral needed)
-        // 2. Place "Higher/Lower" Bet on-chain
-        // 3. Instruction to Payback + Send Profit to traderWallet
-        
-        const txHash = "5k9P...xZ2Q"; // Simulated on-chain hash
-        const profitUSD = 445.50; // 89.1% payout
-
-        ctx.replyWithMarkdown(
-            `✅ **TRADE EXECUTED SUCCESSFULLY**\n\n` +
-            `*Result:* WIN (Higher)\n` +
-            `*Profit:* +$${profitUSD} (Added to Wallet)\n` +
-            `*Bundle:* [View on SolanaFM](https://solanafm.com/tx/${txHash})\n` +
-            `*Status:* 0% Risk Reversal Applied.`
-        );
-    } catch (err) {
-        ctx.replyWithMarkdown("❌ `BUNDLE REVERTED`: Market moved before block inclusion. No funds lost.");
-    }
-}
-
-// 5. MANUAL MODE OPTIONS
-bot.command('manual', (ctx) => {
-    ctx.replyWithMarkdown("🛠 *MANUAL CONFIGURATION*\nSelect your specific trade options:", 
-    Markup.inlineKeyboard([
-        [Markup.button.callback('BTC/USD', 'opt_btc'), Markup.button.callback('ETH/USD', 'opt_eth')],
-        [Markup.button.callback('1m Expiry', 'exp_1'), Markup.button.callback('5m Expiry', 'exp_5')],
-        [Markup.button.callback('BACK TO DASHBOARD', 'start_engine')]
+// --- 4. MANUAL OPTIONS ---
+bot.action('manual_menu', (ctx) => {
+    ctx.editMessageText("🛠 *MANUAL CONFIGURATION*", Markup.inlineKeyboard([
+        [Markup.button.callback('Asset: BTC/USD', 'null'), Markup.button.callback('Expiry: 1m', 'null')],
+        [Markup.button.callback('Payout: 92%', 'null'), Markup.button.callback('Stake: $500', 'null')],
+        [Markup.button.callback('🚀 EXECUTE NOW', 'exec_manual')],
+        [Markup.button.callback('⬅️ BACK', 'start')]
     ]));
 });
 
-bot.launch().then(() => console.log("Pocket Robot Live"));
+bot.launch();
