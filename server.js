@@ -3,8 +3,8 @@
  * APEX PREDATOR: NEURAL ULTRA v9032 (FULL AUTO-PILOT MASTER)
  * ===============================================================================
  * INFRASTRUCTURE: Binance WebSocket + Yellowstone gRPC + Jito Atomic Bundles
- * AUTO-PILOT: Parallel sniper threads + Independent position monitoring (v9032)
- * UPGRADES: Fixed Priority Fees (150k lamports) + Multi-RPC Shotgun Failover
+ * UPGRADES: v9032 Parallel Shotgun + v9032 Independent Peak Monitor
+ * FEATURES: Dual-RPC Failover + Trailing Stop Loss (TSL) + RugCheck Filter
  * ===============================================================================
  */
 
@@ -34,9 +34,10 @@ const NETWORKS = {
 };
 
 let SYSTEM = {
-    autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'MEDIUM',
+    autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'SHORT',
     lastTradedTokens: {}, isLocked: {}, atomicOn: true,
-    trailingDistance: 3.0, minProfitThreshold: 5.0,
+    trailingDist: 3.5, // TSL Trigger
+    minProfit: 5.0,    // Activation point
     currentAsset: 'So11111111111111111111111111111111111111112'
 };
 
@@ -65,28 +66,24 @@ async function startNetworkSniper(chatId, netKey) {
                 const signal = await runNeuralSignalScan(netKey);
                 
                 if (signal && signal.tokenAddress && !SYSTEM.lastTradedTokens[signal.tokenAddress]) {
-                    const [ready, safe] = await Promise.all([
-                        verifyBalance(chatId, netKey),
-                        verifySignalSafety(signal.tokenAddress)
-                    ]);
+                    const [ready, safe] = await Promise.all([verifyBalance(chatId, netKey), verifySignalSafety(signal.tokenAddress)]);
+                    if (!ready || !safe) continue;
 
-                    if (ready && safe) {
-                        SYSTEM.isLocked[netKey] = true;
-                        bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Shotgun.`);
+                    SYSTEM.isLocked[netKey] = true;
+                    bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Shotgun Sniper.`);
 
-                        const buyRes = (netKey === 'SOL')
-                            ? await executeSolShotgun(chatId, signal.tokenAddress, SYSTEM.tradeAmount)
-                            : { success: false }; // EVM implementation placeholder
+                    const buyRes = (netKey === 'SOL')
+                        ? await executeSolShotgun(chatId, signal.tokenAddress, SYSTEM.tradeAmount)
+                        : { success: false }; // Placeholder for EVM Buy logic
 
-                        if (buyRes && buyRes.success) {
-                            const pos = { ...signal, entryPrice: signal.price, peakPrice: signal.price };
-                            SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
-                            // Spawn v9032 Independent monitoring thread
-                            startIndependentPeakMonitor(chatId, netKey, pos);
-                            bot.sendMessage(chatId, `🚀 **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning parallel...`);
-                        }
-                        SYSTEM.isLocked[netKey] = false;
+                    if (buyRes && buyRes.success) {
+                        const pos = { ...signal, entryPrice: signal.price, peakPrice: signal.price };
+                        SYSTEM.lastTradedTokens[signal.tokenAddress] = true;
+                        // v9032 Independent Peak Monitor thread
+                        startIndependentPeakMonitor(chatId, netKey, pos);
+                        bot.sendMessage(chatId, `🚀 **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning parallel...`);
                     }
+                    SYSTEM.isLocked[netKey] = false;
                 }
             }
             await new Promise(r => setTimeout(r, 2000)); 
@@ -94,68 +91,63 @@ async function startNetworkSniper(chatId, netKey) {
     }
 }
 
-// v9032 Asynchronous Peak Monitoring (Trailing Stop Loss)
+// v9032 Asynchronous High-Water-Mark Monitoring (Trailing Stop Loss)
 async function startIndependentPeakMonitor(chatId, netKey, pos) {
-    const monitor = setInterval(async () => {
+    const telemetry = setInterval(async () => {
         try {
             const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${pos.tokenAddress}`, SCAN_HEADERS);
             if (!res.data.pairs || res.data.pairs.length === 0) return;
 
             const curPrice = parseFloat(res.data.pairs[0].priceUsd) || 0;
-            const entry = parseFloat(pos.entryPrice) || 0.00000001;
-            const pnl = ((curPrice - entry) / entry) * 100;
+            const pnl = ((curPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
             if (curPrice > pos.peakPrice) pos.peakPrice = curPrice;
             const dropFromPeak = ((pos.peakPrice - curPrice) / pos.peakPrice) * 100;
 
-            // v9032 Risk-Adjusted Exit Logic
-            let tp = 25; let sl = -10;
-            if (SYSTEM.risk === 'LOW') { tp = 12; sl = -5; }
-            if (SYSTEM.risk === 'MAX') { tp = 100; sl = -20; }
-
-            if (pnl >= tp || (pnl > SYSTEM.minProfitThreshold && dropFromPeak >= SYSTEM.trailingDistance)) {
-                bot.sendMessage(chatId, `🎯 **EXIT:** ${pos.symbol} at ${pnl.toFixed(2)}% PnL (TSL).`);
+            // v9032 Logic: TSL or Hard SL
+            if (pnl >= SYSTEM.minProfit && dropFromPeak >= SYSTEM.trailingDist) {
+                bot.sendMessage(chatId, `🎯 **EXIT (TSL):** ${pos.symbol} at ${pnl.toFixed(2)}% PnL.`);
                 await executeSolShotgun(chatId, pos.tokenAddress, 'SELL');
-                clearInterval(monitor);
-            } else if (pnl <= sl) {
-                bot.sendMessage(chatId, `📉 **STOP LOSS:** ${pos.symbol} at ${pnl.toFixed(2)}% PnL.`);
+                clearInterval(telemetry);
+            } else if (pnl <= -10.0) {
+                bot.sendMessage(chatId, `📉 **EXIT (SL):** ${pos.symbol} at ${pnl.toFixed(2)}% PnL.`);
                 await executeSolShotgun(chatId, pos.tokenAddress, 'SELL');
-                clearInterval(monitor);
+                clearInterval(telemetry);
             }
-        } catch (e) { /* retry telemetry */ }
+        } catch (e) {}
     }, 12000); 
 }
 
-// --- 4. v9032 SHOTGUN EXECUTION ---
+// --- 4. v9032 MASTER EXECUTION LAYER (SHOTGUN) ---
 async function executeSolShotgun(chatId, addr, amt) {
     try {
         const isSell = amt === 'SELL';
         const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
-        const amount = isSell ? 'all' : Math.floor(amt * 1e9).toString();
+        const amount = isSell ? 'all' : Math.floor(parseFloat(amt) * 1e9).toString();
         
-        // Priority Fee Injection (150k microlamports) - Fix for wallet failures
-        const res = await axios.get(`${JUP_ULTRA_API}/order?inputMint=${isSell?addr:SYSTEM.currentAsset}&outputMint=${isSell?SYSTEM.currentAsset:addr}&amount=${isSell?'all':amount}&taker=${solWallet.publicKey.toString()}&slippageBps=250&prioritizationFeeLamports=150000`, SCAN_HEADERS);
+        // 1. Get Transaction with FIXED Priority Fees (150k lamports)
+        const res = await axios.get(`${JUP_ULTRA_API}/order?inputMint=${isSell?addr:SYSTEM.currentAsset}&outputMint=${isSell?SYSTEM.currentAsset:addr}&amount=${amount}&taker=${solWallet.publicKey.toString()}&slippageBps=250&prioritizationFeeLamports=150000`, SCAN_HEADERS);
         
         const tx = VersionedTransaction.deserialize(Buffer.from(res.data.transaction, 'base64'));
         tx.sign([solWallet]);
         
-        // Multi-RPC Failover Broadcast
+        // 2. v9032 SHOTGUN: Dual-RPC Failover broadcast
         const sig = await Promise.any([
             conn.sendRawTransaction(tx.serialize(), { skipPreflight: true }),
             new Connection(NETWORKS.SOL.fallback).sendRawTransaction(tx.serialize(), { skipPreflight: true })
         ]);
         
-        return { success: !!sig, amountOut: res.data.outAmount || 1 };
+        return { success: !!sig };
     } catch (e) { return { success: false }; }
 }
 
-// --- 5. INTERFACE (v9032 DASHBOARD) ---
+// --- 5. INTERFACE (UI) ---
 const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
             [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
-            [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
-            [{ text: `🛡️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }, { text: `⏱️ TERM: ${SYSTEM.mode}`, callback_data: "cycle_mode" }],
+            [{ text: `💰 AMT: ${SYSTEM.tradeAmount} SOL`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
+            [{ text: `🛡️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }, { text: SYSTEM.atomicOn ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }],
             [{ text: solWallet ? "✅ SYNCED" : "🔗 CONNECT WALLET", callback_data: "cmd_conn" }]
         ]
     }
@@ -163,35 +155,33 @@ const getDashboardMarkup = () => ({
 
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
-    if (query.data === "cycle_risk") {
+    if (query.data === "cycle_amt") {
+        const amts = ["0.1", "0.5", "1.0", "5.0"];
+        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+    } else if (query.data === "cycle_risk") {
         const risks = ['LOW', 'MEDIUM', 'MAX'];
         SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
-    } else if (query.data === "cycle_amt") {
-        const amts = ["0.1", "0.25", "0.5", "1.0"];
-        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
     } else if (query.data === "cmd_auto") {
-        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Link Wallet First!", show_alert: true });
+        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "Link Wallet!", show_alert: true });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) {
-            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ONLINE.** Threads active.");
-            Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
-        }
+        if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
     }
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
     bot.answerCallbackQuery(query.id);
 });
 
-bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ <b>APEX v9032 AUTO-PILOT</b>", { parse_mode: 'HTML', ...getDashboardMarkup() }));
+bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "🎮 **APEX v9032 MASTER AUTO-PILOT**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
-    const seed = match[1].trim();
-    const mnemonic = await bip39.mnemonicToSeed(seed);
-    solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
-    evmWallet = ethers.Wallet.fromPhrase(seed);
-    bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
+    try {
+        const seed = match[1].trim();
+        const mnemonic = await bip39.mnemonicToSeed(seed);
+        solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", mnemonic.toString('hex')).key);
+        bot.sendMessage(msg.chat.id, `✅ **SYNCED:** \`${solWallet.publicKey.toString()}\``);
+    } catch (e) { bot.sendMessage(msg.chat.id, "❌ **SYNC FAILED**"); }
 });
 
-// Logic Helpers
+// Verification Helpers
 async function runNeuralSignalScan(netKey) {
     try {
         const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
@@ -201,11 +191,7 @@ async function runNeuralSignalScan(netKey) {
     } catch (e) { return null; }
 }
 
-async function verifySignalSafety(addr) { 
-    try { const res = await axios.get(`https://api.rugcheck.xyz/v1/tokens/${addr}/report`); return res.data.score < 500; } 
-    catch (e) { return true; } 
-}
-
+async function verifySignalSafety(addr) { try { const res = await axios.get(`https://api.rugcheck.xyz/v1/tokens/${addr}/report`); return res.data.score < 500; } catch (e) { return true; } }
 async function verifyBalance(chatId, netKey) {
     try {
         if (netKey === 'SOL' && solWallet) {
@@ -217,4 +203,4 @@ async function verifyBalance(chatId, netKey) {
 }
 
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
-console.log("SYSTEM BOOTED: APEX v9032 MASTER READY".green.bold);
+console.log("SYSTEM BOOTED: APEX v9032 NEURAL MASTER READY".green.bold);
