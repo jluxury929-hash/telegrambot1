@@ -1,6 +1,6 @@
 {
-  "name": "pocket-robot-institutional",
-  "version": "16.8.5",
+  "name": "pocket-robot-apex-pro",
+  "version": "16.8.9",
   "main": "bot.js",
   "dependencies": {
     "telegraf": "^4.16.3",
