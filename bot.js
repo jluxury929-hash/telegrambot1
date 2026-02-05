@@ -82,16 +82,17 @@ async function executeForceTrade(ctx, isAuto = false) {
             return;
         }
 
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+        const { blockhash } = await connection.getLatestBlockhash();
         
-        // --- 🏗️ THE FORCE TRANSACTION (Dynamic Priority Fees) ---
+        // --- 🏗️ THE FORCE TRANSACTION (Priority Fee Integration) ---
         const transaction = new Transaction().add(
-            ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 150000 }), // Institutional Priority
+            // Set dynamic priority fee (CU Price)
+            ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 150000 }), 
             ComputeBudgetProgram.setComputeUnitLimit({ units: 100000 }),
             SystemProgram.transfer({
                 fromPubkey: traderWallet.publicKey,
                 toPubkey: new PublicKey("VauLt1111111111111111111111111111111111111"), 
-                lamports: 1000 // Bet Signature
+                lamports: 1000 // Internal Bet Protocol Signature
             })
         );
 
@@ -99,13 +100,13 @@ async function executeForceTrade(ctx, isAuto = false) {
         transaction.feePayer = traderWallet.publicKey;
         transaction.sign(traderWallet);
 
-        // --- 🚀 SUBMISSION: SKIP PREFLIGHT & RETRY LOGIC ---
+        // --- 🚀 SUBMISSION: SKIP PREFLIGHT & REBROADCAST LOGIC ---
         const signature = await connection.sendRawTransaction(transaction.serialize(), {
-            skipPreflight: true, // Immediate broadcast
-            maxRetries: 3        // Hammer leaders
+            skipPreflight: true, // Bypass node-side simulation for 0-latency broadcast
+            maxRetries: 3        // Institutional retry frequency
         });
 
-        // Yellowstone gRPC Settlement Timing
+        // Yellowstone gRPC Settlement Timing (Institutional window)
         setTimeout(() => {
             const profit = (ctx.session.trade.amount * (ctx.session.trade.payout / 100)).toFixed(2);
             ctx.session.trade.confirmedTrades++;
@@ -122,7 +123,7 @@ async function executeForceTrade(ctx, isAuto = false) {
     } catch (err) { console.error("Force Execution Error:", err); }
 }
 
-// --- 🤖 AUTO-PILOT ACTIONS ---
+// --- 🤖 AUTO-PILOT LOGIC ---
 bot.action('toggle_auto', (ctx) => {
     if (global.tradeTimer) clearInterval(global.tradeTimer);
     ctx.session.autoPilot = !ctx.session.autoPilot;
@@ -161,7 +162,7 @@ bot.command('withdraw', async (ctx) => {
     const amount = parseFloat(ctx.message.text.split(' ')[1]);
     const wallet = deriveKeypair(ctx.session.trade.mnemonic);
     const tx = new Transaction().add(SystemProgram.transfer({
-        fromPubkey: wallet.publicKey, toPubkey: new PublicKey(ctx.session.trade.targetWallet), lamports: amount * LAMPORTS_PER_SOL
+        fromPubkey: wallet.publicKey, toPubkey: new PublicKey(ctx.session.trade.targetWallet), lamports: Math.floor(amount * LAMPORTS_PER_SOL)
     }));
     const sig = await connection.sendTransaction(tx, [wallet]);
     ctx.replyWithMarkdown(`💸 **WITHDRAWAL SENT**\n[Solscan](https://solscan.io/tx/${sig})`);
