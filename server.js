@@ -1,80 +1,56 @@
+require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { RSI } = require('technicalindicators');
 const vader = require('vader-sentiment');
+const axios = require('axios');
 
-// --- CONFIGURATION ---
-const token = 'YOUR_TELEGRAM_BOT_TOKEN';
-const adminId = 123456789; // Your ID from @userinfobot
-const bot = new TelegramBot(token, { polling: true });
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
-let isAutoTrading = false;
-let balance = 1000.00;
+// --- AI PREDICTOR ENGINE ---
+async function getAnalysis() {
+    // 1. Fetch Real-time News (NLP)
+    // Using a free aggregator - change to a pro API for better accuracy
+    const newsRes = await axios.get('https://free-crypto-news.vercel.app/api/news?limit=3');
+    const headlines = newsRes.data.map(a => a.title).join(". ");
+    const sentiment = vader.SentimentIntensityAnalyzer.polarity_scores(headlines).compound;
 
-// 1. THE DASHBOARD UI
-const mainDashboard = {
-    reply_markup: {
-        inline_keyboard: [
-            [
-                { text: '🚀 START AUTO', callback_data: 'start' },
-                { text: '🛑 STOP BOT', callback_data: 'stop' }
-            ],
-            [
-                { text: '🧠 ANALYZE MARKET', callback_data: 'analyze' },
-                { text: '💰 BALANCE', callback_data: 'balance' }
-            ],
-            [
-                { text: '⚙️ SETTINGS', callback_data: 'settings' }
-            ]
-        ]
-    }
-};
+    // 2. Technical Analysis (Simulated RSI)
+    // In a live bot, you'd feed this actual price candles from a WebSocket
+    const mockPrices = [45000, 45100, 45200, 45150, 45300, 45400, 45250];
+    const rsi = RSI.calculate({ values: mockPrices, period: 5 }).pop();
 
-// 2. THE AI PREDICTOR (NLP + TA)
-async function getMarketSignal() {
-    // Mocking price data for RSI (Replace with real WebSocket feed)
-    const prices = [45000, 45100, 45050, 44900, 44800, 44750, 44850, 44950];
-    const rsiValue = RSI.calculate({ values: prices, period: 5 })[0];
-    
-    // News Analysis (NLP)
-    const headline = "Bitcoin shows strong resilience amid market stability.";
-    const intensity = vader.SentimentIntensityAnalyzer.polarity_scores(headline);
+    let suggestion = "NEUTRAL ⚖️";
+    if (rsi < 40 && sentiment > 0.2) suggestion = "HIGHER (Call) 📈";
+    if (rsi > 60 && sentiment < -0.2) suggestion = "LOWER (Put) 📉";
 
-    let signal = "NEUTRAL ⚖️";
-    if (rsiValue < 30 && intensity.compound > 0.3) signal = "BUY (Higher) 📈";
-    if (rsiValue > 70 && intensity.compound < -0.3) signal = "SELL (Lower) 📉";
-    
-    return { signal, rsi: rsiValue.toFixed(2), sentiment: intensity.compound };
+    return { suggestion, rsi: rsi.toFixed(2), sentiment: sentiment.toFixed(2) };
 }
 
-// 3. TELEGRAM COMMAND HANDLERS
+// --- TELEGRAM UI DASHBOARD ---
 bot.onText(/\/start/, (msg) => {
-    if (msg.from.id !== adminId) return bot.sendMessage(msg.chat.id, "🚫 Access Denied.");
-    bot.sendMessage(msg.chat.id, "💎 **AI TRADING TERMINAL v4.0**\nSystem Status: `Ready`", { 
+    if (msg.from.id !== parseInt(process.env.ADMIN_ID)) return;
+
+    bot.sendMessage(msg.chat.id, "💎 **AI TRADING DASHBOARD**\n\nMode: `Standby`\nMarket: `BTC/USD`", {
         parse_mode: 'Markdown',
-        ...mainDashboard 
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '🚀 START AUTO', callback_data: 'start' }, { text: '🛑 STOP', callback_data: 'stop' }],
+                [{ text: '🧠 ANALYZE NOW', callback_data: 'analyze' }]
+            ]
+        }
     });
 });
 
-// 4. BUTTON INTERACTION LOGIC
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
-    const data = query.data;
 
-    if (data === 'start') {
-        isAutoTrading = true;
-        bot.sendMessage(chatId, "✅ **Auto-Trading Engaged.**\nAI is now betting based on real-time news & RSI.");
-    } 
-    else if (data === 'stop') {
-        isAutoTrading = false;
-        bot.sendMessage(chatId, "🛑 **Trading Halted.**\nSystem is now in standby.");
-    } 
-    else if (data === 'analyze') {
-        const data = await getMarketSignal();
-        bot.sendMessage(chatId, `🧠 **AI ANALYSIS**\n\nSignal: \`${data.signal}\`\nRSI: \`${data.rsi}\`\nSentiment: \`${data.sentiment}\``, { parse_mode: 'Markdown' });
-    } 
-    else if (data === 'balance') {
-        bot.sendMessage(chatId, `💵 **Account Overview**\n\nBalance: \`$${balance.toFixed(2)}\`\nToday's Profit: \`+$42.10\``, { parse_mode: 'Markdown' });
+    if (query.data === 'analyze') {
+        const data = await getAnalysis();
+        const report = `🧠 **AI MARKET REPORT**\n\nSignal: \`${data.suggestion}\`\nRSI: \`${data.rsi}\`\nSentiment: \`${data.sentiment}\``;
+        bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
     }
-
-    bot.answerCallbackQuery(query.id); // Removes the loading spinner
+    
+    bot.answerCallbackQuery(query.id);
 });
+
+console.log("🚀 Bot is online and waiting for /start on Telegram");
