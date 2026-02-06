@@ -7,7 +7,6 @@ edition = "2021"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-binary_options_tools = "0.1.9" # Specialized for Pocket Option
-rust_ti = "0.1"               # High-speed technical indicators
-chrono = "0.4"                # Time management
-colored = "2.0"               # UI formatting in terminal
+rust_ti = "0.1"
+chrono = "0.4"
+colored = "2.0"
