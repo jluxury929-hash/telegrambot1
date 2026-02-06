@@ -11,10 +11,10 @@ async fn main() {
     let auto_mode = std::env::var("AUTO_MODE").unwrap_or("false".to_string()) == "true";
     let risk_mgr = RiskManager { daily_limit: 100.0, current_loss: 0.0 };
     
-    println!("{}", "🚀 AEGIS BOT V1.0 - DEPLOYED IN /MAIN".green().bold());
+    println!("{}", "🚀 AEGIS BOT V1.0 - LIVE IN /MAIN".green().bold());
 
     loop {
-        // High-Probability Prediction Logic
+        // High-Probability Price Predictor
         let prices = vec![1.10, 1.12, 1.05, 1.08, 1.09, 1.07, 1.06]; 
         let (signal, confidence) = AIPredictor::get_prediction(&prices);
 
