@@ -15,8 +15,8 @@ async fn main() {
     println!("Mode: {}", if auto_mode { "AUTOMATIC".red() } else { "MANUAL".blue() });
 
     loop {
-        // MOCK DATA: replace with real broker WebSocket data for real profit
-        let prices = vec![1.08, 1.09, 1.07, 1.05, 1.04, 1.03, 1.02]; 
+        // REPLACE WITH REAL API DATA: let prices = broker.get_prices().await;
+        let prices = vec![1.05, 1.04, 1.06, 1.03, 1.02, 1.01, 1.00]; 
 
         let (signal, confidence) = AIPredictor::get_prediction(&prices);
 
@@ -24,14 +24,13 @@ async fn main() {
             let stake = risk.calculate_stake(1000.0);
             if auto_mode {
                 println!("🤖 [AUTO] Placing {:?} | Stake: ${} | Conf: {}%", signal, stake, confidence);
-                // EXECUTE REAL API BET HERE
+                // broker.execute_bet(signal, stake).await;
             } else {
-                println!("📢 [SIGNAL] {:?} | Conf: {}% | RECOMMEND: ${}", signal, confidence, stake);
+                println!("📢 [SIGNAL] {:?} | Conf: {}% | Place bet manually!", signal, confidence);
             }
-        } else {
-            println!("Scanning 1m candles for high-probability setups...");
         }
-
+        
+        // Wait for next 1m candle
         sleep(Duration::from_secs(60)).await;
     }
 }
