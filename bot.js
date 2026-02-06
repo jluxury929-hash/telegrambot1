@@ -1,115 +1,107 @@
-// 1. LOAD DOTENV FIRST
 require('dotenv').config();
-
-const { Telegraf, Markup } = require('telegraf');
+const { Telegraf, Markup, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const axios = require('axios');
-const { Connection, Keypair, PublicKey, VersionedTransaction, SystemProgram } = require('@solana/web3.js');
-const { searcherClient } = require('jito-ts/dist/sdk/block-engine/searcher');
-const bs58 = require('bs58');
-const bip39 = require('bip39');
-const { derivePath } = require('ed25519-hd-key');
+// Add other required imports like Solana connection, Keypair etc.
 
-// Verify token loading
-if (!process.env.BOT_TOKEN || !process.env.SEED_PHRASE) {
-    console.error("❌ ERROR: Essential credentials missing in .env!");
+if (!process.env.BOT_TOKEN) {
+    console.error("❌ BOT_TOKEN missing!");
     process.exit(1);
 }
 
-// --- 2. SOLANA & JITO SETUP ---
-const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-const getWallet = () => {
-    const seed = bip39.mnemonicToSeedSync(process.env.SEED_PHRASE.trim());
-    const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key;
-    return Keypair.fromSeed(derivedSeed);
-};
+// 1. FIX: Proper Session Persistence
+// This saves settings to session.json so buttons stay in sync
+const localSession = new LocalSession({ database: 'session.json' });
+bot.use(localSession.middleware());
 
-const wallet = getWallet();
-const jito = searcherClient("frankfurt.mainnet.block-engine.jito.wtf", wallet);
-
-bot.use((new LocalSession({ database: 'session.json' })).middleware());
-
-// --- 3. SESSION STATE ---
+// --- Initial State Helper ---
 bot.use((ctx, next) => {
     ctx.session.trade = ctx.session.trade || {
         asset: 'SOL/USD',
         payout: 94,
-        amount: 1, // Base amount in SOL
+        amount: 1,
         autoPilot: false,
-        leverage: 10 // Fixed 10x
+        lastSignal: 'None'
     };
     return next();
 });
 
-// --- 4. THE ATOMIC EXECUTION ENGINE ---
-async function executeAtomic10x(ctx) {
-    try {
-        // A. Confirm Prediction (World's Best Data: LunarCrush Galaxy Score)
-        const res = await axios.get(`https://api.lunarcrush.com/v4/public/assets/SOL/v1`, {
-            headers: { 'Authorization': `Bearer ${process.env.LUNAR_API_KEY}` }
-        });
-        const score = res.data.data.galaxy_score;
-
-        if (score < 75) {
-            if (!ctx.session.trade.autoPilot) ctx.reply(`⚠️ Signal Weak (${score}/100). Reverting to save capital.`);
-            return;
-        }
-
-        // B. Calculate 10x (Borrow 9x, Use 1x)
-        const tradeTotal = ctx.session.trade.amount * 10;
-        
-        // C. Fetch Jupiter Flash Loan Quote
-        const quote = await axios.get(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${tradeTotal * 1e9}&slippageBps=10`);
-
-        const { swapTransaction } = await axios.post('https://quote-api.jup.ag/v6/swap', {
-            quoteResponse: quote.data,
-            userPublicKey: wallet.publicKey.toBase58(),
-            wrapAndUnwrapSol: true
-        }).then(r => r.data);
-
-        // D. Build Jito Bundle (Atomic Revert Protection)
-        const tipAccounts = await jito.getTipAccounts();
-        const tipIx = SystemProgram.transfer({
-            fromPubkey: wallet.publicKey,
-            toPubkey: new PublicKey(tipAccounts[0]),
-            lamports: 1000000, // 0.001 SOL Tip
-        });
-
-        const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
-        tx.sign([wallet]);
-
-        const bundleId = await jito.sendBundle([tx]);
-        
-        await ctx.replyWithMarkdown(`✅ *10x ATOMIC WIN*\nSignal Strength: ${score}%\nBundle ID: \`${bundleId}\``);
-    } catch (err) {
-        console.error("Atomic Failure:", err.message);
-    }
-}
-
-// --- 5. UI ACTIONS ---
+// --- UI Layout ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
-    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset}`, 'menu_coins')],
-    [Markup.button.callback(`🚀 Leverage: 10x ATOMIC`, 'none')],
+    [Markup.button.callback(`🪙 ${ctx.session.trade.asset} (${ctx.session.trade.payout}%)`, 'menu_coins')],
+    [Markup.button.callback(`💵 Stake: $${ctx.session.trade.amount} USD`, 'menu_stake')],
     [Markup.button.callback(ctx.session.trade.autoPilot ? '🛑 STOP AUTO-PILOT' : '🤖 START AUTO-PILOT', 'toggle_autopilot')],
-    [Markup.button.callback('📡 GET MANUAL SIGNAL', 'start_engine')]
+    [Markup.button.callback('📡 REFRESH STATUS', 'main_menu')]
 ]);
 
+// --- Core Actions ---
 bot.start((ctx) => {
-    ctx.replyWithMarkdown(`⚡️ *POCKET ROBOT v8.5 - APEX PRO* ⚡️\n\n*Tech:* 10x Flash Loans | Jito Atomic Reversal\n*Wallet:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
+    ctx.replyWithMarkdown(`⚡️ *POCKET ROBOT v9.2* ⚡️\nStatus: *Online*`, mainKeyboard(ctx));
+});
+
+// FIX: Handle button clicks properly with answerCbQuery (prevents "loading" clock icon)
+bot.action('main_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(`⚙️ *DASHBOARD*\nLast Signal: _${ctx.session.trade.lastSignal}_`, { 
+        parse_mode: 'Markdown', 
+        ...mainKeyboard(ctx) 
+    });
 });
 
 bot.action('toggle_autopilot', async (ctx) => {
     ctx.session.trade.autoPilot = !ctx.session.trade.autoPilot;
-    if (ctx.session.trade.autoPilot) runLoop(ctx);
-    ctx.editMessageText(`🤖 *Auto-Pilot:* ${ctx.session.trade.autoPilot ? 'ON' : 'OFF'}`, mainKeyboard(ctx));
+    const status = ctx.session.trade.autoPilot ? "ENABLED ✅" : "DISABLED 🛑";
+    
+    await ctx.answerCbQuery(`Auto-Pilot ${status}`);
+    await ctx.editMessageText(`🤖 *Auto-Pilot:* ${status}\nSearching for high-confidence signals...`, {
+        parse_mode: 'Markdown',
+        ...mainKeyboard(ctx)
+    });
+
+    if (ctx.session.trade.autoPilot) {
+        startGlobalMonitoring(ctx);
+    }
 });
 
-async function runLoop(ctx) {
-    if (!ctx.session.trade.autoPilot) return;
-    await executeAtomic10x(ctx);
-    setTimeout(() => runLoop(ctx), 60000); // 1-minute safety loop
+// --- THE 24/7 MONITORING ENGINE ---
+// Use a Map to keep track of intervals per user so they don't overlap
+const activeIntervals = new Map();
+
+function startGlobalMonitoring(ctx) {
+    const chatId = ctx.chat.id;
+    
+    // Clear existing interval if any to avoid double-running
+    if (activeIntervals.has(chatId)) {
+        clearInterval(activeIntervals.get(chatId));
+    }
+
+    const intervalId = setInterval(async () => {
+        // If user turned it off, stop the interval
+        if (!ctx.session.trade.autoPilot) {
+            clearInterval(intervalId);
+            activeIntervals.delete(chatId);
+            return;
+        }
+
+        try {
+            // Logic to find signals (LunarCrush, Telegram Scrapers, etc.)
+            // Example: const signal = await findBestSignal();
+            console.log(`[24/7] Monitoring signals for ${chatId}...`);
+            
+            // If a 90%+ signal is found, execute and notify
+            // ctx.replyWithMarkdown(`🔥 *SIGNAL FOUND*...`);
+        } catch (e) {
+            console.error("Monitoring Error:", e.message);
+        }
+    }, 10000); // 10-second pulse check
+
+    activeIntervals.set(chatId, intervalId);
 }
 
-bot.launch().then(() => console.log("🚀 Apex Robot Live"));
+bot.launch().then(() => console.log("🚀 Bot is live and buttons are active."));
+
+// Graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
