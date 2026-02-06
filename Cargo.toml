@@ -1,5 +1,5 @@
 [package]
-name = "aegis_bot"
+name = "aegis_bot"  # This must match your start command
 version = "0.1.0"
 edition = "2021"
 
