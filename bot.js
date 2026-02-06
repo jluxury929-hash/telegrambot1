@@ -1,45 +1,53 @@
 // bot.js
+require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const bridge = require('./bridge'); // Pull from the same bridge file
+const bridge = require('./bridge');
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const adminId = 6588957206;
 
-// --- 🛰️ LOGGING FUNCTION ---
-async function logToTelegram(msg) {
-    console.log(`[LOG]: ${msg}`);
-    await bot.sendMessage(adminId, `🔔 **LOG:** ${msg}`, { parse_mode: 'Markdown' });
+// --- 🛰️ LIVE TELEGRAM LOGGER ---
+async function log(msg) {
+    const now = new Date().toLocaleTimeString();
+    console.log(`[${now}] ${msg}`);
+    try {
+        await bot.sendMessage(adminId, `🔔 **LOG:** \`[${now}]\`\n> ${msg}`, { parse_mode: 'Markdown' });
+    } catch (e) { console.error("Log failed"); }
 }
 
-// --- 🎯 THE FIX: STABLE EXECUTION ---
-async function trade(direction) {
+// --- 🎯 THE UNBREAKABLE TRADE ENGINE ---
+async function executeTrade(direction) {
     try {
-        const { page, cursor } = bridge.get(); // ALWAYS works now
+        const { page, cursor } = await bridge.getSafe();
         const action = direction === "UP" ? "call" : "put";
+        const selector = action === 'call' ? '.btn-call' : '.btn-put';
 
-        await logToTelegram(`Scanning chart for **${direction}**...`);
+        await log(`Bridge verified. Moving mouse for **${direction}**...`);
+
+        // Human Jitter (Reaction Time)
+        await new Promise(r => setTimeout(r, 800 + Math.random() * 1500));
         
-        // Human Jitter
-        await new Promise(r => setTimeout(r, 1000 + Math.random() * 1000));
-
-        await logToTelegram(`Moving mouse to button...`);
-        await cursor.move(action === 'call' ? '.btn-call' : '.btn-put');
-
+        // Physics-based Mouse Movement
+        await cursor.move(selector);
+        
+        // Trigger UI Click
         const status = await page.evaluate((a) => window.humanClick(a), action);
         
         if (status === "OK") {
-            await logToTelegram(`✅ **SUCCESS:** Bet placed on Pocket Option!`);
+            await log(`✅ **TRADE SUCCESS.** Order placed on server.`);
         } else {
-            await logToTelegram(`❌ **ERROR:** UI Buttons not found.`);
+            await log(`⚠️ **UI ERROR.** Button not visible. Make sure chart is open.`);
         }
+
     } catch (e) {
-        await logToTelegram(`⚠️ **CRITICAL:** ${e.message}`);
+        await log(`❌ **BRIDGE ERROR:** ${e.message}`);
     }
 }
 
-// --- TELEGRAM COMMANDS ---
+// --- 📱 TELEGRAM INTERFACE ---
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💎 **STEALTH TERMINAL V5**", {
+    if (msg.from.id !== adminId) return;
+    bot.sendMessage(msg.chat.id, "💎 **STEALTH TERMINAL V5.1**", {
         reply_markup: {
             inline_keyboard: [
                 [{ text: "📈 CALL (UP)", callback_data: "up" }, { text: "📉 PUT (DOWN)", callback_data: "down" }]
@@ -49,7 +57,9 @@ bot.onText(/\/start/, (msg) => {
 });
 
 bot.on('callback_query', (q) => {
-    if (q.data === "up") trade("UP");
-    if (q.data === "down") trade("DOWN");
+    if (q.data === "up") executeTrade("UP");
+    if (q.data === "down") executeTrade("DOWN");
     bot.answerCallbackQuery(q.id);
 });
+
+log("🤖 Bot Intelligence Online.");
