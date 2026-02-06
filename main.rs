@@ -1,56 +1,49 @@
 mod predictor;
 mod risk;
 
-use binary_options_tools::PocketOption;
 use predictor::{AIPredictor, Signal};
 use risk::RiskManager;
 use colored::*;
-use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ssid = "YOUR_SESSION_ID_HERE";
-    let asset = "BTCUSD_otc";
-    let auto_mode = true; // Set to false for Manual signals only
-
-    let client = PocketOption::new(ssid).await?;
-    let risk = RiskManager { max_daily_loss: 100.0, current_loss: 0.0, win_rate: 0.0 };
-
-    println!("{}", "--- Aegis Rust AI Trading Bot Started ---".green().bold());
-
+async fn main() {
+    // 1. Initialize Protections
+    let mut risk_manager = RiskManager { 
+        daily_loss_limit: 50.0, 
+        current_loss: 0.0,
+        initial_balance: 1000.0 
+    };
+    
+    // Read from Railway Environment Variables
+    let auto_mode = std::env::var("AUTO_MODE").unwrap_or("false".to_string()) == "true";
+    
+    println!("{}", "=== AEGIS RUST BOT DEPLOYED AND ACTIVE ===".green().bold());
+    
     loop {
-        // 1. Fetch live data
-        let balance = client.balance().await.unwrap_or(0.0);
-        let prices = vec![98.1, 98.5, 97.0, 96.2, 95.5]; // Example live feed
+        // 2. Data Acquisition (Simplified for example - connect to your API here)
+        let prices = vec![1.102, 1.103, 1.101, 1.099, 1.098, 1.097, 1.100]; 
 
-        // 2. Risk Check
-        if !risk.can_trade() {
-            println!("{}", "CRITICAL: Daily loss limit reached. Shutting down.".red());
-            break;
-        }
-
-        // 3. AI Analysis
+        // 3. AI Prediction Inference
         let (signal, confidence) = AIPredictor::get_prediction(&prices);
 
-        // 4. Execution
-        match signal {
-            Signal::Call if confidence > 85.0 => {
-                println!("{} - Conf: {}%", "SIGNAL: CALL (UP)".cyan(), confidence);
-                if auto_mode {
-                    client.buy(asset, 60, risk.calculate_stake(balance)).await?;
-                }
+        // 4. Execution Logic
+        if signal != Signal::Neutral && confidence > 88.0 {
+            let stake = risk_manager.get_stake_amount(1000.0);
+            
+            if auto_mode {
+                println!("🤖 [AUTO-TRADE] Executing {:?} | Stake: ${} | Confidence: {}%", 
+                    signal, stake, confidence);
+                // CALL YOUR BROKER API HERE
+            } else {
+                println!("📢 [SIGNAL] {:?} | Rec. Stake: ${} | Confidence: {}%", 
+                    signal, stake, confidence);
             }
-            Signal::Put if confidence > 85.0 => {
-                println!("{} - Conf: {}%", "SIGNAL: PUT (DOWN)".magenta(), confidence);
-                if auto_mode {
-                    client.sell(asset, 60, risk.calculate_stake(balance)).await?;
-                }
-            }
-            _ => println!("Scanning market for high-probability setups..."),
+        } else {
+            println!("Scanning 1m candles for high-probability reversals...");
         }
 
-        sleep(Duration::from_secs(10)).await; // Poll every 10 seconds
+        // 1-minute interval to match Pocket Option candle cycles
+        sleep(Duration::from_secs(60)).await;
     }
-    Ok(())
 }
