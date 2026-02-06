@@ -17,37 +17,68 @@ bot.on('polling_error', (err) => {
 
 // --- 2. DYNAMIC WALLET ENGINE ---
 const provider = new ethers.JsonRpcProvider("https://ethereum-rpc.publicnode.com");
-let wallet = null; // Loaded via /connect
-let userWalletAddress = null; // Linked via /address
-const USD_TO_CAD = 1.36; // Feb 2026 Exchange Rate
+let wallet = null;
+let userWalletAddress = null;
+const USD_TO_CAD = 1.36;
 
 // --- 3. GLOBAL STATE ---
 let socket = null;
 let isAuto = false;
-let tradeAmount = 10; // CAD
+let tradeAmount = 10;
 let lastSignal = { asset: "BTCUSD_otc", sig: "WAITING", conf: "0%" };
 let dynamicAssets = ["BTCUSD_otc", "ETHUSD_otc", "SOLUSD_otc", "BNBUSD_otc"];
 
 // --- 4. BROKER & PROFIT ENGINE ---
 function connectBroker(chatId) {
+    // UPDATED 2026 ENDPOINT
     const wsUrl = "wss://api.po.market/socket.io/?EIO=4&transport=websocket";
+    
+    // STEALTH HEADERS: Mimics a real Chrome browser to bypass 403 Forbidden
+    const options = {
+        headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Origin": "https://pocketoption.com",
+            "Host": "api.po.market"
+        }
+    };
+
     try {
-        socket = new WebSocket(wsUrl);
+        if (socket) {
+            socket.terminate(); // Clean up old connections
+        }
+
+        socket = new WebSocket(wsUrl, options);
+
         socket.on('open', () => {
             const authPacket = `42["auth",{"session":"${SSID}","isDemo":1,"uid":0,"platform":1}]`;
             socket.send(authPacket);
             console.log(" 🟢 Broker Connected");
+            if (chatId) bot.sendMessage(chatId, "✅ **Authorized & Connected**");
         });
-        socket.on('message', (msg) => {
-            const raw = msg.toString();
-            if (raw === '2') socket.send('3');
-            if (raw.startsWith('42["order_closed"')) {
-                const data = JSON.parse(raw.substring(2))[1];
-                const profitUSD = data.profit - data.amount;
-                const profitCAD = (profitUSD * USD_TO_CAD).toFixed(2);
-                bot.sendMessage(chatId, `💰 **TRADE CLOSED**\nAsset: \`${data.asset}\`\nNet: \`$${profitCAD} CAD\``, { parse_mode: 'Markdown' });
+
+        // FIX: The "Anti-Crash" listener. Prevents 'Unhandled Error' events.
+        socket.on('error', (err) => {
+            console.error("❌ WebSocket Error (403/Forbidden):", err.message);
+            if (chatId) {
+                bot.sendMessage(chatId, "⚠️ **Connection Blocked (403).**\nYour SSID might be expired or your IP is flagged. Try refreshing the SSID with the launcher.");
             }
         });
+
+        socket.on('message', (msg) => {
+            const raw = msg.toString();
+            if (raw === '2') socket.send('3'); // Heartbeat
+            
+            if (raw.startsWith('42["order_closed"')) {
+                try {
+                    const data = JSON.parse(raw.substring(2))[1];
+                    const profitCAD = ((data.profit - data.amount) * USD_TO_CAD).toFixed(2);
+                    bot.sendMessage(chatId, `💰 **TRADE CLOSED**\nAsset: \`${data.asset}\`\nNet: \`$${profitCAD} CAD\``, { parse_mode: 'Markdown' });
+                } catch (e) { console.error("Parse Error:", e.message); }
+            }
+        });
+
+        socket.on('close', () => console.log(" 🔴 Broker Disconnected"));
+
     } catch (e) { console.error("Socket Error:", e.message); }
 }
 
@@ -62,19 +93,22 @@ async function placeTrade(asset, direction, amount) {
 // --- 5. DYNAMIC MENU & AI ---
 async function refreshVolatilityMenu() {
     try {
-        const resp = await axios.get('https://api.binance.com/api/v3/ticker/24hr');
+        const resp = await axios.get('https://api.binance.com/api/v3/ticker/24hr', { timeout: 5000 });
         const sorted = resp.data
             .filter(i => i.symbol.endsWith('USDT'))
             .sort((a, b) => Math.abs(parseFloat(b.priceChangePercent)) - Math.abs(parseFloat(a.priceChangePercent)))
             .slice(0, 4);
         dynamicAssets = sorted.map(i => i.symbol.replace('USDT', 'USD') + "_otc");
-    } catch (e) { console.error("Volatility fetch failed."); }
+    } catch (e) { 
+        console.error("Binance block/timeout. Using defaults."); 
+        dynamicAssets = ["BTCUSD_otc", "ETHUSD_otc", "SOLUSD_otc", "BNBUSD_otc"];
+    }
 }
 
 async function analyze(asset) {
     const coin = asset.split('USD')[0];
     try {
-        const news = await axios.get(`https://min-api.cryptocompare.com/data/v2/news/?categories=${coin}&lang=EN`);
+        const news = await axios.get(`https://min-api.cryptocompare.com/data/v2/news/?categories=${coin}&lang=EN`, { timeout: 5000 });
         const headlines = news.data.Data.slice(0, 3).map(n => n.title).join(". ");
         const sentiment = vader.SentimentIntensityAnalyzer.polarity_scores(headlines).compound;
         if (sentiment > 0.4) return { sig: "HIGHER 📈", conf: "88%" };
@@ -97,62 +131,43 @@ const getDashboard = () => {
 bot.onText(/\/start/, async (msg) => {
     if (msg.from.id !== adminId) return;
     await refreshVolatilityMenu();
-    const balText = wallet ? `\`${ethers.formatEther(await provider.getBalance(wallet.address)).slice(0,6)} ETH\`` : "Disconnected";
+    let balText = "Disconnected";
+    if (wallet) {
+        try {
+            const bal = await provider.getBalance(wallet.address);
+            balText = `\`${ethers.formatEther(bal).slice(0,6)} ETH\``;
+        } catch(e) { balText = "0.00 ETH"; }
+    }
     bot.sendMessage(msg.chat.id, `💎 **AI TERMINAL**\n\nWallet: \`${userWalletAddress || "None"}\`\nGas: ${balText}\nBet: \`$${tradeAmount} CAD\``, getDashboard());
 });
 
-// UPDATED: FIXED /connect logic
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     if (msg.from.id !== adminId) return;
     const input = match[1].trim();
     try {
-        // Instant Security Wipe: delete the message containing the seed/key
         bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {}); 
-
         if (input.split(" ").length >= 12) {
-            // It's a Mnemonic phrase
             wallet = ethers.Wallet.fromPhrase(input, provider);
         } else {
-            // It's a Private Key
             const formattedKey = input.startsWith("0x") ? input : "0x" + input;
             wallet = new ethers.Wallet(formattedKey, provider);
         }
-
         userWalletAddress = wallet.address;
-        const bal = await provider.getBalance(wallet.address);
-        
-        bot.sendMessage(msg.chat.id, 
-            `✅ **Wallet Connected!**\n` +
-            `Address: \`${wallet.address}\`\n` +
-            `Gas: \`${ethers.formatEther(bal).slice(0, 6)} ETH\`\n\n` +
-            `*Your message was deleted for security.*`, 
-            { parse_mode: 'Markdown' }
-        );
-    } catch (e) { 
-        bot.sendMessage(msg.chat.id, "❌ **Connection Failed**: Invalid Seed Phrase or Private Key."); 
-        console.error("Connect Error:", e.message);
-    }
-});
-
-bot.onText(/\/address (0x[a-fA-F0-9]{40})/, (msg, match) => {
-    userWalletAddress = match[1];
-    wallet = null; // Revert to read-only
-    bot.sendMessage(msg.chat.id, `👁️ **Read-Only Mode** linked to \`${userWalletAddress}\``);
+        bot.sendMessage(msg.chat.id, `✅ **Wallet Connected!**\nAddress: \`${wallet.address}\``);
+    } catch (e) { bot.sendMessage(msg.chat.id, "❌ **Connection Failed**."); }
 });
 
 bot.onText(/\/execute/, async (msg) => {
     if (msg.from.id !== adminId) return;
-    if (!wallet) return bot.sendMessage(msg.chat.id, "❌ **Error**: Use `/connect` to enable trading.");
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        connectBroker(msg.chat.id);
+        bot.sendMessage(msg.chat.id, "⏳ **Connecting... Try again in 2 seconds.**");
+        return;
+    }
     placeTrade(lastSignal.asset, lastSignal.sig, tradeAmount);
     bot.sendMessage(msg.chat.id, `🚀 **Executing...**`);
 });
 
-bot.onText(/\/amount (\d+)/, (msg, match) => {
-    tradeAmount = parseInt(match[1]);
-    bot.sendMessage(msg.chat.id, ` ✅ Stake: \`$${tradeAmount} CAD\``);
-});
-
-// --- CALLBACKS ---
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const msgId = query.message.message_id;
