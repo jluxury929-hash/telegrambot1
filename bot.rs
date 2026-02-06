@@ -14,7 +14,7 @@ async fn main() {
     println!("{}", "🚀 AEGIS BOT V1.0 - ROOT/MAIN DEPLOYMENT".green().bold());
 
     loop {
-        // High-performance real-time price processing
+        // WORLD-CLASS PRICE PREDICTOR: RSI + BOLLINGER CONFLUENCE
         let prices = vec![1.10, 1.12, 1.05, 1.08, 1.09, 1.07, 1.06]; 
         let (signal, confidence) = AIPredictor::get_prediction(&prices);
 
@@ -22,8 +22,9 @@ async fn main() {
             let stake = risk_mgr.calculate_stake(1000.0);
             if auto_mode {
                 println!("🤖 [AUTO] Placing {:?} | Stake: ${} | Conf: {}%", signal, stake, confidence);
+                // broker_api::execute(signal, stake).await;
             } else {
-                println!("📢 [SIGNAL] {:?} | Conf: {}% | RECOMMEND: ${}", signal, confidence, stake);
+                println!("📢 [SIGNAL] {:?} | Conf: {}% | RECOMMENDED: ${}", signal, confidence, stake);
             }
         }
         sleep(Duration::from_secs(60)).await;
