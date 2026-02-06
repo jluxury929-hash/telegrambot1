@@ -1,15 +1,13 @@
 // launcher.js
-require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createCursor } = require('ghost-cursor');
 const path = require('path');
-const bridge = require('./bridge'); // Import our new bridge
+const bridge = require('./bridge');
 
 puppeteer.use(StealthPlugin());
 
 async function start() {
-    console.log("🚀 Starting Stealth Engine...");
     const browser = await puppeteer.launch({
         headless: false,
         executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -19,25 +17,31 @@ async function start() {
     const page = (await browser.pages())[0];
     const cursor = createCursor(page);
 
+    // --- RE-INJECTION ENGINE ---
+    const injectLogic = async () => {
+        await page.evaluate(() => {
+            window.humanClick = (action) => {
+                const btn = document.querySelector(action === 'call' ? '.btn-call' : '.btn-put');
+                if (btn) { btn.click(); return "OK"; }
+                return "BTN_MISSING";
+            };
+        });
+        console.log("💉 [BRIDGE] Logic Injected/Restored.");
+    };
+
+    // Auto-reinject if page navigates or reloads
+    page.on('framenavigated', () => injectLogic());
+
     await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
-    console.log("🔑 Please login manually. Bot is waiting...");
+    console.log("🔑 Please login manually...");
 
     await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
-
-    // Inject the internal click function
-    await page.evaluate(() => {
-        window.humanClick = (action) => {
-            const btn = document.querySelector(action === 'call' ? '.btn-call' : '.btn-put');
-            if (btn) { btn.click(); return "OK"; }
-            return "ERR";
-        };
-    });
-
-    // LOCK THE BRIDGE
+    
+    await injectLogic();
     bridge.init(page, cursor);
     
-    console.log("✅ Bridge is Secure. Launching Bot...");
+    console.log("✅ [BRIDGE] Secure & Persistent.");
     require('./bot.js'); 
 }
 
-start().catch(e => console.error("Launcher Error:", e));
+start();
