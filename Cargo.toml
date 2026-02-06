@@ -5,7 +5,7 @@ edition = "2021"
 
 [[bin]]
 name = "aegis_bot"
-path = "bot.rs"  # <-- This must match your actual filename exactly
+path = "bot.rs" 
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
