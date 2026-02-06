@@ -7,35 +7,33 @@ const bridge = require('./bridge');
 puppeteer.use(StealthPlugin());
 
 async function startEngine() {
+    console.log("🛡️ Starting AI-Stealth Engine...");
     const browser = await puppeteer.launch({
         headless: false,
         executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", 
-        args: ['--start-maximized', '--disable-dev-shm-usage', '--no-sandbox']
+        args: ['--start-maximized', '--no-sandbox']
     });
 
     const page = (await browser.pages())[0];
     const cursor = createCursor(page);
+
+    await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
     
-    // Inject the Fast-Action Core
+    // Low-latency Click Engine
     const inject = async () => {
         await page.evaluate(() => {
-            window.pocketHFT = {
-                execute: (dir) => {
-                    const btn = document.querySelector(dir === 'up' ? '.btn-call' : '.btn-put');
-                    if (btn) {
-                        // Sub-millisecond physical event dispatch
-                        btn.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-                        btn.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
-                        return "EXECUTED";
-                    }
-                    return "MISSING";
+            window.pocketHFT = (dir) => {
+                const btn = document.querySelector(dir === 'up' ? '.btn-call' : '.btn-put');
+                if (btn) {
+                    btn.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+                    btn.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+                    return "OK";
                 }
             };
         });
     };
 
     page.on('framenavigated', inject);
-    await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
     await inject();
     bridge.init(page, cursor);
     return page;
