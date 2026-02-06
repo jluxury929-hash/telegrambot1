@@ -3,45 +3,53 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createCursor } = require('ghost-cursor');
 const path = require('path');
-const bridge = require('./bridge');
+const bridge = require('./bridge'); // Import our shared bridge
 
 puppeteer.use(StealthPlugin());
 
-async function start() {
+async function startEngine() {
+    console.log("🛡️ Starting Stealth Engine 2026...");
+    
     const browser = await puppeteer.launch({
         headless: false,
         executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        args: [`--load-extension=${path.join(process.cwd(), 'pocket-ext')}`, '--start-maximized']
+        args: [
+            `--load-extension=${path.join(process.cwd(), 'pocket-ext')}`,
+            '--start-maximized',
+            '--disable-blink-features=AutomationControlled'
+        ]
     });
 
     const page = (await browser.pages())[0];
     const cursor = createCursor(page);
 
-    // --- RE-INJECTION ENGINE ---
-    const injectLogic = async () => {
-        await page.evaluate(() => {
-            window.humanClick = (action) => {
-                const btn = document.querySelector(action === 'call' ? '.btn-call' : '.btn-put');
-                if (btn) { btn.click(); return "OK"; }
-                return "BTN_MISSING";
-            };
-        });
-        console.log("💉 [BRIDGE] Logic Injected/Restored.");
+    // --- AUTO-REINJECTOR ---
+    // This ensures that even if the page refreshes, the bot can still click buttons.
+    const injectTradeLogic = async () => {
+        try {
+            await page.evaluate(() => {
+                window.humanClick = (action) => {
+                    const btn = document.querySelector(action === 'call' ? '.btn-call' : '.btn-put');
+                    if (btn) { btn.click(); return "OK"; }
+                    return "NOT_FOUND";
+                };
+            });
+            console.log("💉 [BRIDGE] Trade logic re-injected.");
+        } catch (e) { /* Tab might be transitioning */ }
     };
 
-    // Auto-reinject if page navigates or reloads
-    page.on('framenavigated', () => injectLogic());
+    page.on('framenavigated', () => injectTradeLogic());
 
     await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
-    console.log("🔑 Please login manually...");
+    console.log("🔑 Please login manually. Bot is standing by...");
 
     await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
     
-    await injectLogic();
+    await injectTradeLogic();
     bridge.init(page, cursor);
     
-    console.log("✅ [BRIDGE] Secure & Persistent.");
-    require('./bot.js'); 
+    console.log("✅ [BRIDGE] Established. Launching Bot Control...");
+    require('./bot.js'); // Start your Telegram bot
 }
 
-start();
+startEngine();
