@@ -1,5 +1,0 @@
-{
-  "deploy": {
-    "startCommand": "aegis_bot"
-  }
-}
