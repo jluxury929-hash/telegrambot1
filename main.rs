@@ -8,42 +8,35 @@ use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() {
-    // 1. Initialize Protections
-    let mut risk_manager = RiskManager { 
-        daily_loss_limit: 50.0, 
-        current_loss: 0.0,
-        initial_balance: 1000.0 
-    };
-    
-    // Read from Railway Environment Variables
+    // Read config from Railway Environment Variables
     let auto_mode = std::env::var("AUTO_MODE").unwrap_or("false".to_string()) == "true";
+    let mut risk = RiskManager { daily_limit: 100.0, current_loss: 0.0 };
     
-    println!("{}", "=== AEGIS RUST BOT DEPLOYED AND ACTIVE ===".green().bold());
-    
-    loop {
-        // 2. Data Acquisition (Simplified for example - connect to your API here)
-        let prices = vec![1.102, 1.103, 1.101, 1.099, 1.098, 1.097, 1.100]; 
+    println!("{}", "🚀 AEGIS RUST BOT DEPLOYED SUCCESSFULLY".green().bold());
+    println!("Mode: {}", if auto_mode { "AUTOMATIC".red() } else { "MANUAL".blue() });
 
-        // 3. AI Prediction Inference
+    loop {
+        // 1. Fetch live data (Simulated here—connect your API for real trades)
+        let prices = vec![100.1, 100.5, 99.8, 99.2, 98.5, 98.1, 98.0]; 
+
+        // 2. AI Analysis
         let (signal, confidence) = AIPredictor::get_prediction(&prices);
 
-        // 4. Execution Logic
+        // 3. Execution
         if signal != Signal::Neutral && confidence > 88.0 {
-            let stake = risk_manager.get_stake_amount(1000.0);
+            let stake = risk.calculate_stake(1000.0); // Assuming $1000 balance
             
-            if auto_mode {
-                println!("🤖 [AUTO-TRADE] Executing {:?} | Stake: ${} | Confidence: {}%", 
-                    signal, stake, confidence);
-                // CALL YOUR BROKER API HERE
-            } else {
-                println!("📢 [SIGNAL] {:?} | Rec. Stake: ${} | Confidence: {}%", 
-                    signal, stake, confidence);
+            match (auto_mode, signal) {
+                (true, Signal::Call) => println!("🤖 [AUTO] Executed CALL | Stake: ${} | Conf: {}%", stake, confidence),
+                (true, Signal::Put) => println!("🤖 [AUTO] Executed PUT | Stake: ${} | Conf: {}%", stake, confidence),
+                (false, _) => println!("📢 [SIGNAL] {:?} Detected | Confidence: {}%", signal, confidence),
+                _ => (),
             }
         } else {
-            println!("Scanning 1m candles for high-probability reversals...");
+            println!("Scanning 1m candles for high-probability setups...");
         }
 
-        // 1-minute interval to match Pocket Option candle cycles
+        // Wait for next candle (60s)
         sleep(Duration::from_secs(60)).await;
     }
 }
