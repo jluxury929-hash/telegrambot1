@@ -1,15 +1,16 @@
 {
   "name": "pocket-robot-ai",
   "version": "1.0.0",
+  "description": "Atomic Binary Options Bot with Jito Protection",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.0",
-    "jito-ts": "^1.0.1",
     "node-telegram-bot-api": "^0.64.0",
     "dotenv": "^16.3.1",
-    "bs58": "^5.0.0"
+    "bs58": "^5.0.0",
+    "jito-ts": "^1.0.1"
   }
 }
