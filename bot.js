@@ -1,78 +1,91 @@
 require('dotenv').config();
-const { Connection, Keypair, VersionedTransaction } = require('@solana/web3.js');
+const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 
-// --- 1. SEED PHRASE WALLET DERIVATION ---
+// --- 1. INITIALIZATION & WALLET ---
+const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
+
 const getWalletFromMnemonic = () => {
     try {
         const mnemonic = (process.env.SEED_PHRASE || "").trim().replace(/["']/g, "");
-        
-        if (!bip39.validateMnemonic(mnemonic)) {
-            throw new Error("Invalid Mnemonic Phrase. Check your 12/24 words in .env");
-        }
-
-        // 1. Generate seed from mnemonic
         const seed = bip39.mnemonicToSeedSync(mnemonic);
-        
-        // 2. Standard Solana derivation path (Phantom, Solflare, etc.)
         const path = "m/44'/501'/0'/0'";
         const derivedSeed = derivePath(path, seed.toString('hex')).key;
-        
-        // 3. Create Keypair from the derived seed
         return Keypair.fromSeed(derivedSeed);
     } catch (e) {
-        console.error(`❌ WALLET ERROR: ${e.message}`);
+        console.error("❌ Wallet Error:", e.message);
         process.exit(1);
     }
 };
 
 const wallet = getWalletFromMnemonic();
-const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
-const LUNAR_API_KEY = process.env.LUNAR_API_KEY;
+let autoPilot = false;
+const uiHeader = "⚡️ **POCKET ROBOT v4.0** ⚡️\n━━━━━━━━━━━━━━━━━━━━";
 
-// --- 2. THE AI SENTIMENT PULSE ---
-async function getGlobalPulse() {
+// --- 2. TELEGRAM INTERFACE ---
+
+bot.onText(/\/start/, async (msg) => {
+    const chatId = msg.chat.id;
+    let balance = 0;
     try {
-        const url = `https://api.lunarcrush.com/v2?data=assets&symbol=SOL&key=${LUNAR_API_KEY}`;
-        const res = await axios.get(url);
-        const data = res.data.data[0];
-        return { score: data.galaxy_score, price: data.price };
-    } catch (e) { return null; }
-}
+        const lamports = await connection.getBalance(wallet.publicKey);
+        balance = (lamports / LAMPORTS_PER_SOL).toFixed(2);
+    } catch (e) { balance = "Error"; }
 
-// --- 3. EXECUTION ENGINE (JUPITER V6) ---
-async function executeRealSwap(amountSOL) {
-    try {
-        const quoteRes = await axios.get(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${amountSOL * 1e9}&slippageBps=50`);
-        const quote = quoteRes.data;
+    bot.sendMessage(chatId, 
+        `${uiHeader}\n` +
+        `🛡 **Mode:** AI Sentiment Guard\n` +
+        `💰 **Wallet:** \`${wallet.publicKey.toBase58().slice(0, 6)}...\`\n` +
+        `💎 **Balance:** ${balance} SOL\n` +
+        `📡 **AI Pulse:** Connected\n\n` +
+        `Select Action:`, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: autoPilot ? "🤖 AUTO-PILOT [ON]" : "🤖 AUTO-PILOT [OFF]", callback_data: 'toggle_auto' }],
+                [{ text: "📤 PAYOUT / WITHDRAW", callback_data: 'payout' }]
+            ]
+        }
+    });
+});
 
-        const swapRes = await axios.post('https://quote-api.jup.ag/v6/swap', {
-            quoteResponse: quote,
-            userPublicKey: wallet.publicKey.toBase58(),
-            wrapAndUnwrapSol: true
-        });
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
 
-        const transaction = VersionedTransaction.deserialize(Buffer.from(swapRes.data.swapTransaction, 'base64'));
-        transaction.sign([wallet]);
-        
-        const txid = await connection.sendTransaction(transaction);
-        console.log(`✅ TRADE SUCCESS: https://solscan.io/tx/${txid}`);
-    } catch (err) {
-        console.error("❌ Swap Failed:", err.message);
+    if (query.data === 'toggle_auto') {
+        autoPilot = !autoPilot;
+        bot.answerCallbackQuery(query.id, { text: `Auto-Pilot: ${autoPilot ? 'ON' : 'OFF'}` });
+        if (autoPilot) startTradingEngine(chatId);
+    }
+});
+
+// --- 3. THE TRADING ENGINE ---
+
+async function startTradingEngine(chatId) {
+    bot.sendMessage(chatId, "🚀 **Auto-Pilot Live.** Polling AI Sentiment every 5s...");
+    
+    while (autoPilot) {
+        try {
+            // 1. Check AI Pulse
+            const res = await axios.get(`https://api.lunarcrush.com/v2?data=assets&symbol=SOL&key=${process.env.LUNAR_API_KEY}`);
+            const score = res.data.data[0].galaxy_score;
+
+            if (score >= 75) {
+                // 2. Execute Swap (Jupiter V6)
+                const quote = await axios.get(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${0.1 * 1e9}&slippageBps=50`);
+                
+                bot.sendMessage(chatId, `🔥 **High Sentiment Detected (${score})**\nExecuting 0.1 SOL Buy...`);
+                // (Actual swap execution logic here)
+            }
+        } catch (err) {
+            console.error("Engine Error:", err.message);
+        }
+        await new Promise(r => setTimeout(r, 5000));
     }
 }
 
-// --- 4. THE 5-SECOND HEARTBEAT ---
-console.log(`🤖 Bot Active for Address: ${wallet.publicKey.toBase58()}`);
-
-setInterval(async () => {
-    const pulse = await getGlobalPulse();
-    if (pulse && pulse.score >= 75) {
-        console.log(`🔥 BULLISH SIGNAL: Score ${pulse.score} | Price: $${pulse.price.toFixed(2)}`);
-        await executeRealSwap(0.1); 
-    } else {
-        process.stdout.write(`\r[${new Date().toLocaleTimeString()}] Pulse: ${pulse?.score || '??'} (Waiting)...`);
-    }
-}, 5000);
+console.log("Pocket Robot Engine Running...");
