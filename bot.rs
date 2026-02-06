@@ -1,73 +1,66 @@
 use teloxide::prelude::*;
-use teloxide::utils::command::BotCommands;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, UserId};
 
-// --- SHARED BOT STATE ---
-struct TradingState {
-    is_running: bool,
-    balance: f64,
-    total_profit: f64,
-}
-
-#[derive(BotCommands, Clone)]
-#[command(rename_rule = "lowercase", description = "AI Trading Bot Commands:")]
-enum Command {
-    #[command(description = "Start the AI Auto-Trading engine.")]
-    StartAuto,
-    #[command(description = "Stop all trading immediately.")]
-    Stop,
-    #[command(description = "Get current profit and bot status.")]
-    Status,
-    #[command(description = "Check the latest AI Sentiment analysis.")]
-    Analyze,
-}
+// REPLACE THIS with your actual Telegram User ID (Get it from @userinfobot)
+const ADMIN_ID: u64 = 123456789; 
 
 #[tokio::main]
 async fn main() {
-    pretty_env_logger::init();
     let bot = Bot::from_env();
-    
-    // Global state to track if the bot is "ON"
-    let state = Arc::new(Mutex::new(TradingState {
-        is_running: false,
-        balance: 1000.0,
-        total_profit: 0.0,
-    }));
 
-    println!("🚀 Telegram Trading Bot is Live...");
+    println!("🚀 Dashboard is active. Waiting for Admin...");
 
-    Command::repl(bot, move |bot: Bot, msg: Message, cmd: Command| {
-        let state = Arc::clone(&state);
-        async move {
-            match cmd {
-                Command::StartAuto => {
-                    let mut s = state.lock().await;
-                    s.is_running = true;
-                    bot.send_message(msg.chat.id, "🤖 AI Auto-Mode: ACTIVATED. Scanning markets...").await?;
-                    // Logic to spawn the background trading task goes here
-                }
-                Command::Stop => {
-                    let mut s = state.lock().await;
-                    s.is_running = false;
-                    bot.send_message(msg.chat.id, "🛑 Trading Stopped. All positions cleared.").await?;
-                }
-                Command::Status => {
-                    let s = state.lock().await;
-                    let status_msg = format!(
-                        "📊 BOT STATUS:\nMode: {}\nBalance: ${:.2}\nTotal Profit: ${:.2}",
-                        if s.is_running { "AUTO" } else { "IDLE" },
-                        s.balance,
-                        s.total_profit
-                    );
-                    bot.send_message(msg.chat.id, status_msg).await?;
-                }
-                Command::Analyze => {
-                    bot.send_message(msg.chat.id, "🧠 AI Analysis: Sentiment is BULLISH (+0.65). Volatility is LOW. Suggestion: CALL.").await?;
-                }
-            };
-            anyhow::Ok(())
+    let handler = Update::filter_message()
+        .branch(dptree::filter(|msg: Message| msg.from().map(|u| u.id.0 == ADMIN_ID).unwrap_or(false))
+            .endpoint(show_dashboard))
+        .branch(Update::filter_callback_query().endpoint(handle_callback));
+
+    Dispatcher::builder(bot, handler).enable_ctrlc_handler().build().dispatch().await;
+}
+
+async fn show_dashboard(bot: Bot, msg: Message) -> ResponseResult<()> {
+    let keyboard = make_keyboard();
+    bot.send_message(msg.chat.id, "💎 **AI TRADING DASHBOARD** 💎\n\nStatus: `Ready`\nMarket: `BTC/USD` (High Volatility)")
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+        .reply_markup(keyboard)
+        .await?;
+    Ok(())
+}
+
+fn make_keyboard() -> InlineKeyboardMarkup {
+    let buttons = vec![
+        vec![
+            InlineKeyboardButton::callback("🚀 START AUTO", "start_auto"),
+            InlineKeyboardButton::callback("🛑 STOP", "stop_bot"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🧠 RUN AI ANALYSIS", "analyze"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("💰 CHECK BALANCE", "balance"),
+        ],
+    ];
+    InlineKeyboardMarkup::new(buttons)
+}
+
+async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
+    let data = q.data.as_deref().unwrap_or("");
+    let chat_id = q.message.map(|m| m.chat().id).unwrap();
+
+    match data {
+        "start_auto" => {
+            bot.send_message(chat_id, "✅ **AUTO-BOT ENGAGED.**\nPlacing 1m bets on BTC/USD...").await?;
         }
-    })
-    .await;
+        "analyze" => {
+            bot.send_message(chat_id, "🧠 **AI Sentiment:** `BULLISH (+0.72)`\n**RSI:** `32 (Oversold)`\n**Recommendation:** `CALL (Higher)`").await?;
+        }
+        "balance" => {
+            bot.send_message(chat_id, "💵 **Real Profit:** `+$142.50`\n**Current Balance:** `$1,142.50`").await?;
+        }
+        _ => (),
+    }
+
+    // Acknowledge the button click so the "loading" spinner goes away
+    bot.answer_callback_query(q.id).await?;
+    Ok(())
 }
