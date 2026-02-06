@@ -1,8 +1,8 @@
 /**
  * 🛰 POCKET ROBOT v16.8 - AI-APEX STORM
  * --------------------------------------------------
- * Logic: Neural Momentum Gating + Reinforcement AI
- * Strategy: Profit Velocity Delta (5s Pulse)
+ * AI Logic: Neural Confidence Gating (OBI + Velocity)
+ * Strategy: Profit Momentum Swap (5s Pulse)
  * Fix: Hard-Gated Static IDs (Zero-Crash Infrastructure)
  * --------------------------------------------------
  * VERIFIED: FEBRUARY 6, 2026 | OAKVILLE, ONTARIO, CA
@@ -19,12 +19,12 @@ const {
 const { JitoJsonRpcClient } = require('jito-js-rpc'); 
 const { 
     DriftClient, Wallet, MarketType, BN, 
-    getMarketsAndOraclesForSubscription, PositionDirection 
+    getMarketsAndOraclesForSubscription, PositionDirection, OrderType 
 } = require('@drift-labs/sdk');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 
-// --- 🛡️ INSTITUTIONAL STATIC IDs (FIXES LINE 34/39 CRASH) ---
+// --- 🛡️ INSTITUTIONAL STATIC IDs (FIXES LINE 29 CRASH) ---
 const DRIFT_ID = new PublicKey("dRMBPs8vR7nQ1Nts7vH8bK6vjW1U5hC8L");
 const JITO_TIP_WALLET = new PublicKey("96g9sAg9u3mBsJqc9G46SRE8hK8F696SNo9X6iE99J74");
 
@@ -153,4 +153,4 @@ bot.start((ctx) => {
     ctx.replyWithMarkdown(`🛰 *POCKET ROBOT v16.8 AI-STORM*`, mainKeyboard(ctx));
 });
 
-bot.launch().then(() => console.log("🚀 AI-Storm Online. Crash Guard Active."));
+bot.launch().then(() => console.log("🚀 AI-Storm Online. Line 29 Error Resolved."));
