@@ -1,5 +1,5 @@
-mod predictor; // This links predictor.rs
-mod risk;      // This links risk.rs
+mod predictor; // Links main/predictor.rs
+mod risk;      // Links main/risk.rs
 
 use predictor::{AIPredictor, Signal};
 use colored::*;
@@ -7,10 +7,10 @@ use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() {
-    println!("{}", "🚀 AEGIS BOT STARTED FROM /MAIN ROOT".green().bold());
+    println!("{}", "🚀 AEGIS BOT ACTIVE: ROOT FOLDER /MAIN".green().bold());
     
     loop {
-        // High-level predictor logic
+        // High-Probability Prediction
         let prices = vec![1.10, 1.12, 1.05, 1.08, 1.09]; 
         let (signal, conf) = AIPredictor::get_prediction(&prices);
         
