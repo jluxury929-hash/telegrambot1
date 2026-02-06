@@ -5,7 +5,7 @@ pub struct RiskManager {
 
 impl RiskManager {
     pub fn calculate_stake(&self, balance: f64) -> f64 {
-        // Professional risk: 2% per trade
+        // Professional risk: 2% per trade ensures you stay in the game
         (balance * 0.02).max(1.0).round()
     }
 }
