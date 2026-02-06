@@ -1,10 +1,10 @@
 {
   "name": "ai-pocket-sniper-pro",
-  "version": "7.0.0",
+  "version": "10.5.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "postinstall": "npx puppeteer browsers install chrome --install-deps"
   },
   "dependencies": {
     "puppeteer": "^22.0.0",
