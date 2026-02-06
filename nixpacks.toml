@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["...", "rustup"]
+
+[phases.install]
+cmds = ["rustup default stable"]
+
+[phases.build]
+cmds = ["cargo build --release"]
