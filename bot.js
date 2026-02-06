@@ -1,66 +1,82 @@
-// bot.js
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
+const { startEngine } = require('./launcher');
 const bridge = require('./bridge');
-const { startEngine } = require('./launcher'); // Import the launcher function
+const axios = require('axios');
+const TA = require('technicalindicators');
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const adminId = 6588957206;
 
 async function log(msg) {
-    const time = new Date().toLocaleTimeString();
-    console.log(`[${time}] ${msg}`);
-    try {
-        await bot.sendMessage(adminId, `🔔 **LOG:** \`[${time}]\`\n> ${msg}`, { parse_mode: 'Markdown' });
-    } catch (e) { console.error("Log failed"); }
+    console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
+    await bot.sendMessage(adminId, `🛰️ **STATION LOG:**\n${msg}`, { parse_mode: 'Markdown' }).catch(()=>{});
 }
 
-// --- 📱 TELEGRAM UI ---
-bot.onText(/\/start/, async (msg) => {
-    if (msg.from.id !== adminId) return;
-
-    await log("🌐 **INITIALIZING BROWSER...** Please wait.");
-    
+// --- 📈 PREDICTIVE ENGINE ---
+async function getPrediction(asset = 'BTCUSDT') {
     try {
-        const page = await startEngine();
+        const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=${asset}&interval=1m&limit=30`);
+        const closes = res.data.map(d => parseFloat(d[4]));
         
-        bot.sendMessage(msg.chat.id, "💎 **STEALTH TERMINAL V5.5**\n\n✅ Browser opened successfully.\n🔑 **ACTION REQUIRED:** Log into Pocket Option in the Chrome window now!", {
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: "📈 CALL (UP)", callback_data: "up" }, { text: "📉 PUT (DOWN)", callback_data: "down" }]
-                ]
-            }
-        });
+        const rsi = TA.rsi({ values: closes, period: 14 }).pop();
+        const sma = TA.sma({ values: closes, period: 10 }).pop();
+        const lastPrice = closes[closes.length - 1];
 
-        // Optional: Wait for login automatically
-        await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
-        await log("🚀 **LOGIN DETECTED.** Bridge is 100% active and ready for trades.");
+        let decision = "NEUTRAL";
+        let reason = `RSI: ${rsi.toFixed(2)} | Price: ${lastPrice}`;
 
-    } catch (e) {
-        await log(`❌ **LAUNCH FAILED:** ${e.message}`);
-    }
+        if (rsi < 35 && lastPrice > sma) decision = "HIGHER 📈";
+        else if (rsi > 65 && lastPrice < sma) decision = "LOWER 📉";
+
+        return { decision, reason };
+    } catch (e) { return { decision: "ERROR", reason: e.message }; }
+}
+
+// --- 📱 UI & COMMANDS ---
+bot.onText(/\/start/, (msg) => {
+    if (msg.from.id !== adminId) return;
+    const menu = {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "🌐 1. LAUNCH ENGINE", callback_data: "launch" }],
+                [{ text: "🧠 2. GET PREDICTION", callback_data: "predict" }],
+                [{ text: "📈 CALL", callback_data: "up" }, { text: "📉 PUT", callback_data: "down" }]
+            ]
+        }
+    };
+    bot.sendMessage(msg.chat.id, "💎 **AI PREDICTIVE TERMINAL**\nMode: `PocketOption Feature-Link`", menu);
 });
 
-// --- EXECUTION HANDLER ---
-async function executeTrade(direction) {
-    try {
-        const { page, cursor } = bridge.get(); 
-        const action = direction === "UP" ? "call" : "put";
-        const selector = action === 'call' ? '.btn-call' : '.btn-put';
+bot.on('callback_query', async (q) => {
+    const { data, message } = q;
 
-        await log(`Moving mouse for **${direction}**...`);
-        await cursor.move(selector);
-        
-        const status = await page.evaluate((a) => window.humanClick(a), action);
-        if (status === "OK") await log(`✅ **BET PLACED!**`);
-        else await log(`⚠️ **UI ERROR:** Button missing.`);
-    } catch (e) { await log(`❌ ${e.message}`); }
-}
+    if (data === "launch") {
+        await log("🚀 **Launching Stealth Browser...**");
+        try {
+            const page = await startEngine();
+            await log("🔑 **WAITING FOR LOGIN...** Please authorize in Chrome.");
+            await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
+            await log("✅ **LINK ESTABLISHED.** Pocket Option features are now mapped.");
+        } catch (e) { await log(`❌ **CRITICAL ERROR:** ${e.message}`); }
+    }
 
-bot.on('callback_query', (q) => {
-    if (q.data === "up") executeTrade("UP");
-    if (q.data === "down") executeTrade("DOWN");
+    if (data === "predict") {
+        await log("📡 **Analyzing Market Volatility...**");
+        const p = await getPrediction();
+        const advice = p.decision === "NEUTRAL" ? "⚠️ **Wait for better entry.**" : `🔥 **STRATEGY:** Choose **${p.decision}**`;
+        await bot.sendMessage(adminId, `🎯 **PREDICTION ENGINE**\nAsset: \`BTC/USD\`\nDecision: \`${p.decision}\`\nData: \`${p.reason}\`\n\n${advice}`, { parse_mode: 'Markdown' });
+    }
+
+    if (data === "up" || data === "down") {
+        try {
+            const { page, cursor } = bridge.get();
+            const action = data === "up" ? "call" : "put";
+            await log(`🕹️ **Action:** Moving human-cursor to **${action.toUpperCase()}**...`);
+            await cursor.move(action === 'call' ? '.btn-call' : '.btn-put');
+            await page.evaluate((a) => window.pocketControl.click(a), action);
+            await log(`✅ **TRADE SENT.** Verify your screen for the active order.`);
+        } catch (e) { await log(`❌ **BRIDGE FAILED:** ${e.message}`); }
+    }
     bot.answerCallbackQuery(q.id);
 });
-
-log("🤖 Bot Intelligence Online. Type /start in Telegram.");
