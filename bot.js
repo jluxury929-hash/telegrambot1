@@ -5,88 +5,56 @@ const vader = require('vader-sentiment');
 const axios = require('axios');
 const WebSocket = require('ws');
 
-// --- 1. ACCESS & SECURITY ---
+// --- 1. INITIALIZATION & STABILITY ---
 const token = process.env.TELEGRAM_TOKEN;
-const adminId = 6588957206; 
 const bot = new TelegramBot(token, { polling: true });
+const adminId = 6588957206; 
 const SSID = process.env.POCKET_OPTION_SSID;
 
-// Handle 409 Conflict (Prevents crash if two bots are open)
 bot.on('polling_error', (err) => {
-    if (err.message.includes('409 Conflict')) {
-        console.error("⚠️ Multiple instances running! Close other terminals.");
-    }
+    if (err.message.includes('409 Conflict')) console.error("⚠️ Multiple instances running!");
 });
 
-// --- 2. BLOCKCHAIN & GAS ENGINE ---
+// --- 2. DYNAMIC WALLET ENGINE ---
 const provider = new ethers.JsonRpcProvider("https://ethereum-rpc.publicnode.com");
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-const GAS_LIMIT_SAFETY = ethers.parseEther("0.001"); // Safety floor
+let wallet = null; // Loaded via /connect
+let userWalletAddress = null; // Linked via /address
 const USD_TO_CAD = 1.36; // Feb 2026 Exchange Rate
 
 // --- 3. GLOBAL STATE ---
 let socket = null;
 let isAuto = false;
 let tradeAmount = 10; // CAD
-let userWalletAddress = null; 
 let lastSignal = { asset: "BTCUSD_otc", sig: "WAITING", conf: "0%" };
 let dynamicAssets = ["BTCUSD_otc", "ETHUSD_otc", "SOLUSD_otc", "BNBUSD_otc"];
 
-// --- 4. THE PROFIT & BROKER ENGINE ---
+// --- 4. BROKER & PROFIT ENGINE ---
 function connectBroker(chatId) {
     const wsUrl = "wss://api.po.market/socket.io/?EIO=4&transport=websocket";
-    
     try {
         socket = new WebSocket(wsUrl);
-
         socket.on('open', () => {
             const authPacket = `42["auth",{"session":"${SSID}","isDemo":1,"uid":0,"platform":1}]`;
             socket.send(authPacket);
-            console.log(" 🟢 Broker Connected Successfully");
+            console.log(" 🟢 Broker Connected");
         });
-
         socket.on('message', (msg) => {
             const raw = msg.toString();
-            if (raw === '2') socket.send('3'); // Heartbeat
-
-            // CATCH TRADE RESULTS
+            if (raw === '2') socket.send('3');
             if (raw.startsWith('42["order_closed"')) {
                 const data = JSON.parse(raw.substring(2))[1];
                 const profitUSD = data.profit - data.amount;
                 const profitCAD = (profitUSD * USD_TO_CAD).toFixed(2);
-                const emoji = profitUSD > 0 ? "💰" : "📉";
-
-                bot.sendMessage(chatId, 
-                    `${emoji} **TRADE CLOSED**\n\n` +
-                    `Asset: \`${data.asset}\`\n` +
-                    `Profit: \`$${profitUSD.toFixed(2)} USD\`\n` +
-                    `Profit: \`$${profitCAD} CAD\`\n` +
-                    `Balance: \`$${data.account_balance} USD\``, 
-                    { parse_mode: 'Markdown' }
-                );
+                bot.sendMessage(chatId, `💰 **TRADE CLOSED**\nAsset: \`${data.asset}\`\nNet: \`$${profitCAD} CAD\``, { parse_mode: 'Markdown' });
             }
         });
-
-        socket.on('error', (err) => console.error("🔴 Broker Error:", err.message));
-    } catch (e) { console.error("❌ Socket Failed:", e.message); }
+    } catch (e) { console.error("Socket Error:", e.message); }
 }
 
-async function checkGas(chatId) {
-    const bal = await provider.getBalance(wallet.address);
-    if (bal < GAS_LIMIT_SAFETY) {
-        bot.sendMessage(chatId, `⚠️ **GAS ALERT**: Your ETH balance (\`${ethers.formatEther(bal)}\`) is too low to broadcast trades.`);
-        return false;
-    }
-    return true;
-}
-
-async function placeTrade(asset, direction, amount = tradeAmount) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-        connectBroker();
-        return;
-    }
+async function placeTrade(asset, direction, amount) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
     const action = direction.includes("HIGHER") ? "call" : "put";
-    const amountUSD = (amount / USD_TO_CAD).toFixed(2); // Convert CAD to USD for broker
+    const amountUSD = (amount / USD_TO_CAD).toFixed(2);
     const packet = `42["openOrder",{"asset":"${asset}","amount":${amountUSD},"action":"${action}","time":60}]`;
     socket.send(packet);
 }
@@ -120,25 +88,45 @@ const getDashboard = () => {
         [{ text: `${lastSignal.asset === dynamicAssets[0] ? '📍 ' : ''}${dynamicAssets[0]}`, callback_data: `scan_${dynamicAssets[0]}` },
          { text: `${lastSignal.asset === dynamicAssets[1] ? '📍 ' : ''}${dynamicAssets[1]}`, callback_data: `scan_${dynamicAssets[1]}` }],
         [{ text: `${lastSignal.asset === dynamicAssets[2] ? '📍 ' : ''}${dynamicAssets[2]}`, callback_data: `scan_${dynamicAssets[2]}` },
-         { text: `${lastSignal.asset === dynamicAssets[3] ? '📍 ' : ''}${dynamicAssets[3]}`, callback_data: `scan_${dynamicAssets[3]}` }],
-        [{ text: ' 🔄 REFRESH VOLATILITY', callback_data: 'refresh' }]
+         { text: `${lastSignal.asset === dynamicAssets[3] ? '📍 ' : ''}${dynamicAssets[3]}`, callback_data: `scan_${dynamicAssets[3]}` }]
     ];
-    return { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: isAuto ? ' 🛑 STOP AUTO' : ' 🚀 START AUTO', callback_data: 'toggle_auto' }], ...buttons] } };
+    return { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: isAuto ? ' 🛑 STOP AUTO' : ' 🚀 START AUTO', callback_data: 'toggle_auto' }], ...buttons, [{ text: ' 🔄 REFRESH VOLATILITY', callback_data: 'refresh' }]] } };
 };
 
-// --- COMMANDS ---
+// --- 6. COMMAND HANDLERS ---
 bot.onText(/\/start/, async (msg) => {
     if (msg.from.id !== adminId) return;
     await refreshVolatilityMenu();
-    bot.sendMessage(msg.chat.id, ` 💎 **AI VOLATILITY TERMINAL v6.0**\n\nTargeting: \`${lastSignal.asset}\`\nBet: \`$${tradeAmount} CAD\``, getDashboard());
+    const balText = wallet ? `\`${ethers.formatEther(await provider.getBalance(wallet.address)).slice(0,6)} ETH\`` : "Disconnected";
+    bot.sendMessage(msg.chat.id, `💎 **AI TERMINAL**\n\nWallet: \`${userWalletAddress || "None"}\`\nGas: ${balText}\nBet: \`$${tradeAmount} CAD\``, getDashboard());
+});
+
+bot.onText(/\/connect (.+)/, async (msg, match) => {
+    if (msg.from.id !== adminId) return;
+    const input = match[1].trim();
+    try {
+        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {}); // Security delete
+        if (input.split(" ").length >= 12) {
+            wallet = ethers.Wallet.fromPhrase(input, provider);
+        } else {
+            wallet = new ethers.Wallet(input.startsWith('0x') ? input : `0x${input}`, provider);
+        }
+        userWalletAddress = wallet.address;
+        bot.sendMessage(msg.chat.id, `✅ **Wallet Connected!**\nAddress: \`${wallet.address}\``, { parse_mode: 'Markdown' });
+    } catch (e) { bot.sendMessage(msg.chat.id, "❌ Invalid Seed or Key."); }
+});
+
+bot.onText(/\/address (0x[a-fA-F0-9]{40})/, (msg, match) => {
+    userWalletAddress = match[1];
+    wallet = null; // Revert to read-only
+    bot.sendMessage(msg.chat.id, `👁️ **Read-Only Mode** linked to \`${userWalletAddress}\``);
 });
 
 bot.onText(/\/execute/, async (msg) => {
     if (msg.from.id !== adminId) return;
-    if (await checkGas(msg.chat.id)) {
-        placeTrade(lastSignal.asset, lastSignal.sig, tradeAmount);
-        bot.sendMessage(msg.chat.id, `🚀 **Trade Executed.** (Using $${(tradeAmount/USD_TO_CAD).toFixed(2)} USD)`);
-    }
+    if (!wallet) return bot.sendMessage(msg.chat.id, "❌ **Error**: Use `/connect` to enable trading.");
+    placeTrade(lastSignal.asset, lastSignal.sig, tradeAmount);
+    bot.sendMessage(msg.chat.id, `🚀 **Executing...**`);
 });
 
 bot.onText(/\/amount (\d+)/, (msg, match) => {
@@ -150,25 +138,22 @@ bot.onText(/\/amount (\d+)/, (msg, match) => {
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const msgId = query.message.message_id;
-
     if (query.data === 'refresh') {
         await refreshVolatilityMenu();
-        await bot.editMessageText(` 💎 **VOLATILITY UPDATED**`, { chat_id: chatId, message_id: msgId, ...getDashboard() });
+        await bot.editMessageText(` 💎 **REFRESHED VOLATILITY**`, { chat_id: chatId, message_id: msgId, ...getDashboard() });
     }
-
     if (query.data === 'toggle_auto') {
         isAuto = !isAuto;
         if (isAuto) connectBroker(chatId);
         await bot.editMessageText(` 💎 **AUTO-MODE: ${isAuto ? "ON" : "OFF"}**`, { chat_id: chatId, message_id: msgId, ...getDashboard() });
     }
-
     if (query.data.startsWith('scan_')) {
         const asset = query.data.split('_')[1];
         const result = await analyze(asset);
         lastSignal = { asset, sig: result.sig, conf: result.conf };
-        await bot.editMessageText(` 🎯 **Analysis: ${asset}**\nSignal: \`${result.sig}\` (${result.conf})`, { chat_id: chatId, message_id: msgId, ...getDashboard() });
+        await bot.editMessageText(`🎯 **Analysis: ${asset}**\nSignal: \`${result.sig}\` (${result.conf})`, { chat_id: chatId, message_id: msgId, ...getDashboard() });
     }
     bot.answerCallbackQuery(query.id);
 });
 
-console.log("🚀 Terminal Online. Profit Tracking & Gas Shield Active.");
+console.log("🚀 Terminal Online. Ready for /connect or /address");
