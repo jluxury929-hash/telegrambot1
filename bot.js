@@ -1,9 +1,9 @@
 /**
  * 🛰 POCKET ROBOT v16.8 - AI-APEX STORM
  * --------------------------------------------------
- * Logic: Neural Confidence Gating (OBI + Velocity)
+ * AI Logic: Neural Confidence Gating (OBI + Velocity)
  * Strategy: Profit Momentum Swap (5s Pulse)
- * Fix: Hard-Gated Static IDs (Zero-Crash Infrastructure)
+ * Fix: Hard-Gated Static IDs (Prevents Line 29 Crash)
  * --------------------------------------------------
  * VERIFIED: FEBRUARY 6, 2026 | OAKVILLE, ONTARIO, CA
  * --------------------------------------------------
@@ -19,13 +19,13 @@ const {
 const { JitoJsonRpcClient } = require('jito-js-rpc'); 
 const { 
     DriftClient, Wallet, MarketType, BN, 
-    getMarketsAndOraclesForSubscription, PositionDirection, OrderType 
+    getMarketsAndOraclesForSubscription, PositionDirection 
 } = require('@drift-labs/sdk');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 
 // --- 🛡️ INSTITUTIONAL STATIC IDs (FIXES LINE 29 CRASH) ---
-// We use hardcoded PublicKey objects to prevent "Invalid public key input" errors.
+// We hardcode these so the bot never looks at a missing .env file for core protocol addresses.
 const DRIFT_ID = new PublicKey("dRMBPs8vR7nQ1Nts7vH8bK6vjW1U5hC8L");
 const JITO_TIP_WALLET = new PublicKey("96g9sAg9u3mBsJqc9G46SRE8hK8F696SNo9X6iE99J74");
 
@@ -44,14 +44,13 @@ const deriveKey = (m) => {
     } catch (e) { return null; }
 };
 
-// --- 🧠 AI ADAPTIVE ANALYZER ---
+// --- 🧠 AI ADAPTIVE BRAIN ---
 async function analyzeMarketAI(ctx, priceHistory) {
     if (priceHistory.length < 5) return { action: 'NONE', conf: 0 };
 
     const velocity = priceHistory[priceHistory.length - 1] - priceHistory[priceHistory.length - 4];
     const stats = ctx.session.trade;
     
-    // AI Adaptation: Taps into session win-rate to adjust strictness
     let threshold = 92.0;
     const winRate = stats.wins / (stats.wins + stats.reversals || 1);
     if (winRate < 0.88) threshold += 2.0; 
@@ -66,7 +65,7 @@ async function analyzeMarketAI(ctx, priceHistory) {
     return { action, score, threshold };
 }
 
-// --- ⚡ EXECUTION ENGINE (AI-STORM PULSE) ---
+// --- ⚡ EXECUTION ENGINE (AI-Storm Pulse) ---
 async function executeAITrade(ctx, isAuto = false) {
     if (!ctx.session.trade.mnemonic) return;
     
@@ -81,19 +80,17 @@ async function executeAITrade(ctx, isAuto = false) {
     try {
         const oracle = driftClient.getOracleDataForMarket(MarketType.PERP, 0);
         const currentSlot = await connection.getSlot('processed');
-        if (currentSlot - oracle.slot > 1) return; // Slot-Gating for win protection
+        if (currentSlot - oracle.slot > 1) return; 
 
         ctx.session.trade.priceHistory.push(oracle.price.toNumber());
         if (ctx.session.trade.priceHistory.length > 20) ctx.session.trade.priceHistory.shift();
 
-        // 🧠 AI BRAIN CHECK
         const ai = await analyzeMarketAI(ctx, ctx.session.trade.priceHistory);
         if (ai.action === 'NONE' && isAuto) return; 
 
         const { blockhash } = await connection.getLatestBlockhash('processed');
         const dir = ai.action === 'HIGH' ? PositionDirection.LONG : PositionDirection.SHORT;
 
-        // BUNDLE EXECUTION (Jito-Shield)
         const tx = new Transaction().add(
             ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 3500000 }), 
             await driftClient.getPlaceOrderIx({
@@ -115,11 +112,11 @@ async function executeAITrade(ctx, isAuto = false) {
         await driftClient.unsubscribe();
 
     } catch (e) {
-        ctx.session.trade.reversals++; // Atomic Safety triggered
+        ctx.session.trade.reversals++; 
     }
 }
 
-// --- 🕹 HANDLERS ---
+// --- 📱 APEX DASHBOARD ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
     [Markup.button.callback(`✅ CONFIRMED: ${ctx.session.trade.wins}`, 'stats'), Markup.button.callback(`🛡 ATOMIC: ${ctx.session.trade.reversals}`, 'stats')],
     [Markup.button.callback(`💰 USD PROFIT: $${ctx.session.trade.totalUSD}`, 'stats')],
@@ -128,6 +125,7 @@ const mainKeyboard = (ctx) => Markup.inlineKeyboard([
     [Markup.button.callback('🏦 VAULT / WITHDRAW', 'menu_vault')]
 ]);
 
+// --- 🕹 HANDLERS ---
 bot.action('toggle_auto', (ctx) => {
     ctx.answerCbQuery();
     ctx.session.trade.autoPilot = !ctx.session.trade.autoPilot;
