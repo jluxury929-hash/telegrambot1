@@ -5,21 +5,20 @@ class BridgeManager {
         this.cursor = null;
     }
 
-    // This locks the session data into memory
     init(page, cursor) {
         this.page = page;
         this.cursor = cursor;
-        console.log("🔒 [BRIDGE] Session locked into memory.");
+        console.log("🔒 [BRIDGE] Instance initialized and locked.");
     }
 
-    // This is the function your bot was missing
+    // This is the function the bot is looking for
     get() {
-        if (!this.page || this.page.isClosed()) {
-            throw new Error("BRIDGE_NOT_FOUND: Browser is not open yet.");
+        if (!this.page) {
+            throw new Error("BRIDGE_NOT_FOUND: The browser hasn't started yet.");
         }
         return { page: this.page, cursor: this.cursor };
     }
 }
 
-// CRITICAL: We export an INSTANCE (new), not the Class.
+// CRITICAL: You must export 'new BridgeManager()' NOT just 'BridgeManager'
 module.exports = new BridgeManager();
