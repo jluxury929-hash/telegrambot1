@@ -1,4 +1,3 @@
-// launcher.js
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createCursor } = require('ghost-cursor');
@@ -9,7 +8,7 @@ puppeteer.use(StealthPlugin());
 
 async function startEngine() {
     const browser = await puppeteer.launch({
-        headless: false,
+        headless: false, // Mandatory to avoid PocketOption bot-detection
         executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", 
         args: ['--start-maximized', '--no-sandbox']
     });
