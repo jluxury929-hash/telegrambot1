@@ -1,5 +1,5 @@
 [package]
-name = "aegis_bot"  # This must match your start command
+name = "aegis_bot"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,6 @@ edition = "2021"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rust_ti = "0.1"
-chrono = "0.4"
-colored = "2.0"
+rust_ti = "0.1"      # High-speed math for indicators
+chrono = "0.4"       # Time tracking
+colored = "2.0"      # UI colors
