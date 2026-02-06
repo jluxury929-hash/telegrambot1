@@ -1,7 +1,7 @@
 /**
  * 🛰 POCKET ROBOT v16.8 - AI-APEX STORM
  * --------------------------------------------------
- * AI Logic: Neural Confidence Gating (OBI + Velocity)
+ * Logic: Neural Confidence Gating (OBI + Velocity)
  * Strategy: Profit Momentum Swap (5s Pulse)
  * Fix: Hard-Gated Static IDs (Zero-Crash Infrastructure)
  * --------------------------------------------------
@@ -25,7 +25,7 @@ const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 
 // --- 🛡️ INSTITUTIONAL STATIC IDs (FIXES LINE 29 CRASH) ---
-// Hardcoding verified addresses ensures the bot ALWAYS boots regardless of .env issues.
+// We use hardcoded PublicKey objects to prevent "Invalid public key input" errors.
 const DRIFT_ID = new PublicKey("dRMBPs8vR7nQ1Nts7vH8bK6vjW1U5hC8L");
 const JITO_TIP_WALLET = new PublicKey("96g9sAg9u3mBsJqc9G46SRE8hK8F696SNo9X6iE99J74");
 
@@ -44,7 +44,7 @@ const deriveKey = (m) => {
     } catch (e) { return null; }
 };
 
-// --- 🧠 NEURAL AI ANALYZER ---
+// --- 🧠 AI ADAPTIVE ANALYZER ---
 async function analyzeMarketAI(ctx, priceHistory) {
     if (priceHistory.length < 5) return { action: 'NONE', conf: 0 };
 
@@ -119,7 +119,7 @@ async function executeAITrade(ctx, isAuto = false) {
     }
 }
 
-// --- 📱 APEX DASHBOARD ---
+// --- 🕹 HANDLERS ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
     [Markup.button.callback(`✅ CONFIRMED: ${ctx.session.trade.wins}`, 'stats'), Markup.button.callback(`🛡 ATOMIC: ${ctx.session.trade.reversals}`, 'stats')],
     [Markup.button.callback(`💰 USD PROFIT: $${ctx.session.trade.totalUSD}`, 'stats')],
@@ -128,7 +128,6 @@ const mainKeyboard = (ctx) => Markup.inlineKeyboard([
     [Markup.button.callback('🏦 VAULT / WITHDRAW', 'menu_vault')]
 ]);
 
-// --- 🕹 HANDLERS ---
 bot.action('toggle_auto', (ctx) => {
     ctx.answerCbQuery();
     ctx.session.trade.autoPilot = !ctx.session.trade.autoPilot;
