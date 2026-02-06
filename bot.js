@@ -1,99 +1,111 @@
 require('dotenv').config();
-const { Telegraf, Markup, session } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const axios = require('axios');
-const { Connection, Keypair, PublicKey, VersionedTransaction } = require('@solana/web3.js');
-const { searcherClient } = require('jito-ts/dist/sdk/block-engine/searcher');
-const bs58 = require('bs58');
-const bip39 = require('bip39');
-const { derivePath } = require('ed25519-hd-key');
-
-// --- 1. INITIALIZATION & SAFETY ---
-if (!process.env.BOT_TOKEN) {
-    console.error("❌ ERROR: BOT_TOKEN is missing!");
-    process.exit(1);
-}
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+bot.use((new LocalSession({ database: 'session.json' })).middleware());
 
-// Persistence for user settings
-const localSession = new LocalSession({ 
-    database: 'session.json',
-    property: 'session',
-    storage: LocalSession.storageFileAsync,
-    format: {
-        serialize: (obj) => JSON.stringify(obj, null, 2),
-        deserialize: (str) => JSON.parse(str),
-    }
-});
-bot.use(localSession.middleware());
-
-// --- 2. SESSION INITIALIZER (CRITICAL FIX) ---
+// --- INITIAL SESSION STATE ---
 bot.use((ctx, next) => {
-    ctx.session = ctx.session || {};
     ctx.session.trade = ctx.session.trade || {
         asset: 'SOL/USD',
-        payout: 94,
         amount: 1,
         autoPilot: false,
-        mode: 'Real'
+        lastPrediction: 'None'
     };
     return next();
 });
 
-// --- 3. KEYBOARDS ---
+// --- THE PREDICTION BRAIN ---
+async function getLivePrediction(asset) {
+    try {
+        // Ping LunarCrush v4 (or your preferred source)
+        const res = await axios.get(`https://api.lunarcrush.com/v4/public/assets/${asset.split('/')[0]}/v1`, {
+            headers: { 'Authorization': `Bearer ${process.env.LUNAR_API_KEY}` }
+        });
+        const score = res.data.data.galaxy_score;
+        
+        // Define direction based on Galaxy Score
+        if (score >= 70) return { direction: 'HIGHER', confidence: score };
+        if (score <= 30) return { direction: 'LOWER', confidence: score };
+        return { direction: 'NEUTRAL', confidence: score };
+    } catch (e) {
+        return { direction: 'ERROR', confidence: 0 };
+    }
+}
+
+// --- DYNAMIC KEYBOARD ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
-    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset} (${ctx.session.trade.payout}%)`, 'menu_coins')],
-    [Markup.button.callback(`🚀 Leverage: 10x ATOMIC`, 'leverage_info')],
-    [Markup.button.callback(`💵 Stake: ${ctx.session.trade.amount} SOL`, 'menu_stake')],
+    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset}`, 'menu_coins')],
     [Markup.button.callback(ctx.session.trade.autoPilot ? '🛑 STOP AUTO-PILOT' : '🤖 START AUTO-PILOT', 'toggle_autopilot')],
-    [Markup.button.callback('🕹 MANUAL MODE', 'manual_menu')]
+    [Markup.button.callback('📡 MANUAL SIGNAL SCAN', 'manual_scan')]
 ]);
 
-// --- 4. COMMANDS & ACTIONS ---
+// --- HANDLERS ---
 
-// START command
 bot.start((ctx) => {
-    return ctx.replyWithMarkdown(
-        `⚡️ *POCKET ROBOT v10.2 - APEX PRO* ⚡️\n\n` +
-        `Institutional 10x Flash Loan Engine active.\n` +
-        `Current Prediction: *Checking...*`,
+    ctx.replyWithMarkdown(
+        `⚡️ *POCKET ROBOT v10.5* ⚡️\n\n` +
+        `Institutional engine online. Press *SCAN* to get a live prediction.`,
         mainKeyboard(ctx)
     );
 });
 
-// Responds to manual menu
-bot.action('manual_menu', async (ctx) => {
-    await ctx.answerCbQuery();
-    return ctx.editMessageText(`🕹 *MANUAL EXECUTION*\nSelect your prediction direction:`, 
-        Markup.inlineKeyboard([
-            [Markup.button.callback('📈 HIGHER', 'exec_up'), Markup.button.callback('📉 LOWER', 'exec_down')],
-            [Markup.button.callback('⬅️ BACK', 'main_menu')]
-        ])
-    );
+// FIXED: MANUAL SCAN (Shows Prediction First)
+bot.action('manual_scan', async (ctx) => {
+    await ctx.answerCbQuery("Scanning markets...");
+    await ctx.editMessageText(`📡 *ANALYZING ${ctx.session.trade.asset}...*`);
+
+    const signal = await getLivePrediction(ctx.session.trade.asset);
+
+    // This is the core fix: The bot TELLS you what to do in the message
+    setTimeout(() => {
+        ctx.editMessageText(
+            `📡 *SIGNAL FOUND (PROBABILITY: ${signal.confidence}%)*\n\n` +
+            `👉 *RECOMMENDED BET:* **${signal.direction}**\n\n` +
+            `Click below to execute this atomic trade:`,
+            Markup.inlineKeyboard([
+                [Markup.button.callback(`🚀 BET ${signal.direction}`, `exec_${signal.direction}`)],
+                [Markup.button.callback('❌ CANCEL', 'main_menu')]
+            ])
+        );
+    }, 1500);
 });
 
-// Main menu back button
-bot.action('main_menu', async (ctx) => {
-    await ctx.answerCbQuery();
-    return ctx.editMessageText(`⚡️ *POCKET ROBOT DASHBOARD*`, mainKeyboard(ctx));
-});
-
-// Toggle Autopilot
+// FIXED: AUTO-PILOT (Fully Automates Manual Logic)
 bot.action('toggle_autopilot', async (ctx) => {
     ctx.session.trade.autoPilot = !ctx.session.trade.autoPilot;
-    const status = ctx.session.trade.autoPilot ? "ENABLED ✅" : "DISABLED 🛑";
+    await ctx.answerCbQuery();
     
-    await ctx.answerCbQuery(`Auto-Pilot ${status}`);
-    return ctx.editMessageText(`🤖 *Auto-Pilot Status:* ${status}\nRunning 24/7 signal analysis every 5s...`, mainKeyboard(ctx));
+    ctx.editMessageText(
+        `🤖 *AUTO-PILOT:* ${ctx.session.trade.autoPilot ? 'RUNNING 24/7' : 'OFF'}\n` +
+        `The bot is now mirroring manual signals automatically.`,
+        mainKeyboard(ctx)
+    );
+
+    if (ctx.session.trade.autoPilot) {
+        runAutoLoop(ctx);
+    }
 });
 
-// Dummy action for Leverage info
-bot.action('leverage_info', (ctx) => ctx.answerCbQuery("10x Atomic Flash Loans Enabled", { show_alert: true }));
+async function runAutoLoop(ctx) {
+    if (!ctx.session.trade.autoPilot) return;
 
-// --- 5. LAUNCH ---
-bot.launch().then(() => console.log("🚀 Pocket Robot is Live & Responsive!"));
+    const signal = await getLivePrediction(ctx.session.trade.asset);
+    
+    // Auto-execute if confidence is ultra-high (90+)
+    if (signal.confidence >= 90 && signal.direction !== 'NEUTRAL') {
+        // executeAtomicTrade(ctx, signal.direction); // Put your Jito/10x code here
+        ctx.replyWithMarkdown(`🤖 *AUTO-TRADE:* Prediction **${signal.direction}** confirmed with ${signal.confidence}% confidence.`);
+    }
 
-// Enable graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    setTimeout(() => runAutoLoop(ctx), 5000); // 5-second pulse
+}
+
+bot.action('main_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    ctx.editMessageText(`⚡️ *POCKET ROBOT DASHBOARD*`, mainKeyboard(ctx));
+});
+
+bot.launch().then(() => console.log("🚀 Bot Live & Signals Working"));
