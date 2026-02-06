@@ -17,11 +17,13 @@ impl AIPredictor {
         let b_lower = *lower.last().unwrap();
         let b_upper = *upper.last().unwrap();
 
-        // High-Probability Confluence: Mean Reversion + Momentum Exhaustion
+        // WORLD CLASS LOGIC: Mean Reversion + Momentum Exhaustion
         if last_price <= b_lower && last_rsi <= 30.0 {
-            (Signal::Call, 92.5) // Predictive "CALL"
+            let confidence = (30.0 - last_rsi) + 85.0; 
+            (Signal::Call, confidence.min(99.0))
         } else if last_price >= b_upper && last_rsi >= 70.0 {
-            (Signal::Put, 94.1)  // Predictive "PUT"
+            let confidence = (last_rsi - 70.0) + 85.0;
+            (Signal::Put, confidence.min(99.0))
         } else {
             (Signal::Neutral, 50.0)
         }
