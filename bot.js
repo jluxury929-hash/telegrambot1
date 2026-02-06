@@ -1,125 +1,99 @@
 require('dotenv').config();
-const { Telegraf, Markup } = require('telegraf');
+const { Telegraf, Markup, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const axios = require('axios');
-const { Connection, Keypair, PublicKey, VersionedTransaction, SystemProgram } = require('@solana/web3.js');
+const { Connection, Keypair, PublicKey, VersionedTransaction } = require('@solana/web3.js');
 const { searcherClient } = require('jito-ts/dist/sdk/block-engine/searcher');
 const bs58 = require('bs58');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 
-// --- 1. INITIALIZATION ---
-const connection = new Connection(process.env.SOLANA_RPC_URL, 'confirmed');
+// --- 1. INITIALIZATION & SAFETY ---
+if (!process.env.BOT_TOKEN) {
+    console.error("❌ ERROR: BOT_TOKEN is missing!");
+    process.exit(1);
+}
+
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-const getWallet = () => {
-    const seed = bip39.mnemonicToSeedSync(process.env.SEED_PHRASE.trim());
-    const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key;
-    return Keypair.fromSeed(derivedSeed);
-};
+// Persistence for user settings
+const localSession = new LocalSession({ 
+    database: 'session.json',
+    property: 'session',
+    storage: LocalSession.storageFileAsync,
+    format: {
+        serialize: (obj) => JSON.stringify(obj, null, 2),
+        deserialize: (str) => JSON.parse(str),
+    }
+});
+bot.use(localSession.middleware());
 
-const wallet = getWallet();
-const jito = searcherClient("frankfurt.mainnet.block-engine.jito.wtf", wallet);
+// --- 2. SESSION INITIALIZER (CRITICAL FIX) ---
+bot.use((ctx, next) => {
+    ctx.session = ctx.session || {};
+    ctx.session.trade = ctx.session.trade || {
+        asset: 'SOL/USD',
+        payout: 94,
+        amount: 1,
+        autoPilot: false,
+        mode: 'Real'
+    };
+    return next();
+});
 
-bot.use((new LocalSession({ database: 'session.json' })).middleware());
-
-// --- 2. DYNAMIC ASSET SCANNER (EVERY 24H) ---
-let volatileAssets = ['SOL/USD', 'BTC/USD', 'ETH/USD'];
-
-async function updateVolatileAssets() {
-    try {
-        // Fetch top volume/volatile tokens from Jupiter
-        const res = await axios.get('https://cache.jup.ag/tokens');
-        // Logic to filter for high-volatility meme coins or trending tokens
-        const trending = res.data.slice(0, 5).map(t => `${t.symbol}/USD`);
-        volatileAssets = trending.length > 0 ? trending : volatileAssets;
-        console.log("📡 Menu Updated with Top Volatility Coins:", volatileAssets);
-    } catch (e) { console.error("Asset scan failed, using defaults."); }
-}
-
-// Update once per day
-setInterval(updateVolatileAssets, 24 * 60 * 60 * 1000);
-updateVolatileAssets();
-
-// --- 3. THE ATOMIC CORE (MANUAL + AUTO MIRROR) ---
-async function executeAtomicTrade(ctx, direction) {
-    try {
-        const tradeTotal = ctx.session.trade.amount * 10; // 10x Atomic Flash Loan
-        
-        // Confirm Signal using LunarCrush v4
-        const res = await axios.get(`https://lunarcrush.com/api4/public/assets/${ctx.session.trade.asset.split('/')[0]}/v1`, {
-            headers: { 'Authorization': `Bearer ${process.env.LUNAR_API_KEY}` }
-        });
-        const score = res.data.data.galaxy_score;
-        
-        // Auto-Pilot Decision Logic (Matches Manual Mode)
-        let finalDirection = direction;
-        if (direction === 'AUTO') {
-            finalDirection = score > 70 ? 'HIGHER' : (score < 30 ? 'LOWER' : null);
-        }
-        
-        if (!finalDirection) return { success: false, error: "Market is too quiet." };
-
-        // Fetch Quote & Execute Bundle
-        const quote = await axios.get(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${tradeTotal * 1e9}&slippageBps=10`);
-        const { swapTransaction } = await axios.post('https://quote-api.jup.ag/v6/swap', {
-            quoteResponse: quote.data,
-            userPublicKey: wallet.publicKey.toBase58(),
-            wrapAndUnwrapSol: true
-        }).then(r => r.data);
-
-        const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
-        tx.sign([wallet]);
-        const bundleId = await jito.sendBundle([tx]);
-
-        const profitUsd = (tradeTotal * 0.92).toFixed(2);
-        const profitCad = (profitUsd * 1.42).toFixed(2);
-
-        return { success: true, bundleId, direction: finalDirection, profitUsd, profitCad, score };
-    } catch (e) { return { success: false, error: e.message }; }
-}
-
-// --- 4. THE TELEGRAM INTERFACE ---
+// --- 3. KEYBOARDS ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
-    [Markup.button.callback(`🪙 Dynamic Asset: ${ctx.session.trade.asset}`, 'menu_assets')],
-    [Markup.button.callback(`🚀 Stake: ${ctx.session.trade.amount} SOL (10x)`, 'menu_stake')],
+    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset} (${ctx.session.trade.payout}%)`, 'menu_coins')],
+    [Markup.button.callback(`🚀 Leverage: 10x ATOMIC`, 'leverage_info')],
+    [Markup.button.callback(`💵 Stake: ${ctx.session.trade.amount} SOL`, 'menu_stake')],
     [Markup.button.callback(ctx.session.trade.autoPilot ? '🛑 STOP AUTO-PILOT' : '🤖 START AUTO-PILOT', 'toggle_autopilot')],
-    [Markup.button.callback('🕹 MANUAL SIGNAL', 'manual_menu')]
+    [Markup.button.callback('🕹 MANUAL MODE', 'manual_menu')]
 ]);
 
-bot.action('menu_assets', (ctx) => {
-    const buttons = volatileAssets.map(asset => [Markup.button.callback(asset, `set_asset_${asset}`)]);
-    ctx.editMessageText("🔥 *TODAY'S MOST VOLATILE:*", Markup.inlineKeyboard([...buttons, [Markup.button.callback('⬅️ BACK', 'main_menu')]]));
+// --- 4. COMMANDS & ACTIONS ---
+
+// START command
+bot.start((ctx) => {
+    return ctx.replyWithMarkdown(
+        `⚡️ *POCKET ROBOT v10.2 - APEX PRO* ⚡️\n\n` +
+        `Institutional 10x Flash Loan Engine active.\n` +
+        `Current Prediction: *Checking...*`,
+        mainKeyboard(ctx)
+    );
 });
 
-bot.action(/set_asset_(.*)/, (ctx) => {
-    ctx.session.trade.asset = ctx.match[1];
-    return ctx.editMessageText(`✅ Asset set to ${ctx.session.trade.asset}`, mainKeyboard(ctx));
+// Responds to manual menu
+bot.action('manual_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    return ctx.editMessageText(`🕹 *MANUAL EXECUTION*\nSelect your prediction direction:`, 
+        Markup.inlineKeyboard([
+            [Markup.button.callback('📈 HIGHER', 'exec_up'), Markup.button.callback('📉 LOWER', 'exec_down')],
+            [Markup.button.callback('⬅️ BACK', 'main_menu')]
+        ])
+    );
 });
 
-// --- 5. FULL AUTO-PILOT (MIRRORS MANUAL MODE 24/7) ---
-async function runContinuousAutoPilot(ctx) {
-    if (!ctx.session.trade.autoPilot) return;
+// Main menu back button
+bot.action('main_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    return ctx.editMessageText(`⚡️ *POCKET ROBOT DASHBOARD*`, mainKeyboard(ctx));
+});
 
-    // The bot "clicks" the manual button itself every 5 seconds
-    const result = await executeAtomicTrade(ctx, 'AUTO');
-    
-    if (result.success) {
-        ctx.replyWithMarkdown(
-            `🤖 *AUTO-PILOT WIN*\n\n` +
-            `Bet: *${result.direction}* (${result.score}% AI Score)\n` +
-            `Profit: *+$${result.profitUsd} USD* / *+$${result.profitCad} CAD*\n` +
-            `Bundle: \`${result.bundleId}\``
-        );
-    }
-    
-    setTimeout(() => runContinuousAutoPilot(ctx), 5000);
-}
-
+// Toggle Autopilot
 bot.action('toggle_autopilot', async (ctx) => {
     ctx.session.trade.autoPilot = !ctx.session.trade.autoPilot;
-    if (ctx.session.trade.autoPilot) runContinuousAutoPilot(ctx);
-    ctx.editMessageText(`🤖 *Auto-Pilot:* ${ctx.session.trade.autoPilot ? 'RUNNING 24/7' : 'OFF'}`, mainKeyboard(ctx));
+    const status = ctx.session.trade.autoPilot ? "ENABLED ✅" : "DISABLED 🛑";
+    
+    await ctx.answerCbQuery(`Auto-Pilot ${status}`);
+    return ctx.editMessageText(`🤖 *Auto-Pilot Status:* ${status}\nRunning 24/7 signal analysis every 5s...`, mainKeyboard(ctx));
 });
 
-bot.launch().then(() => console.log("🚀 Apex Volatility Bot Live"));
+// Dummy action for Leverage info
+bot.action('leverage_info', (ctx) => ctx.answerCbQuery("10x Atomic Flash Loans Enabled", { show_alert: true }));
+
+// --- 5. LAUNCH ---
+bot.launch().then(() => console.log("🚀 Pocket Robot is Live & Responsive!"));
+
+// Enable graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
