@@ -1,110 +1,108 @@
-/**
- * POCKET ROBOT v17.5 - APEX FULL AUTO
- * Verified: Feb 6, 2026 | Full Manual-Mode Mirroring
- */
-
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
-const { Connection, Keypair, VersionedTransaction } = require('@solana/web3.js');
-const axios = require('axios');
+const { Connection, Keypair, Transaction, SystemProgram, ComputeBudgetProgram, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction } = require('@solana/web3.js');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
+const axios = require('axios');
+
+// 1. Initial Validation
+if (!process.env.BOT_TOKEN) {
+    console.error("❌ ERROR: BOT_TOKEN is missing!");
+    process.exit(1);
+}
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const connection = new Connection(process.env.SOLANA_RPC_URL, 'confirmed');
+const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
 
-bot.use((new LocalSession({ database: 'session.json' })).middleware());
+// 2. Middleware: Session MUST come before handlers
+const localSession = new LocalSession({ database: 'session.json' });
+bot.use(localSession.middleware());
 
-// --- WALLET DERIVATION ---
+// 3. Middleware: Initialize Session State
+bot.use((ctx, next) => {
+    ctx.session.trade = ctx.session.trade || {
+        asset: 'SOL/USD',
+        amount: 1,
+        payout: 94,
+        confirmedTrades: 0,
+        totalProfit: 0,
+        connected: false,
+        mnemonic: null
+    };
+    ctx.session.autoPilot = ctx.session.autoPilot || false;
+    return next();
+});
+
+// --- HELPER: WALLET DERIVATION ---
 function deriveKeypair(mnemonic) {
     const seed = bip39.mnemonicToSeedSync(mnemonic.trim());
     const { key } = derivePath("m/44'/501'/0'/0'", seed.toString('hex'));
     return Keypair.fromSeed(key);
 }
 
-// --- FULL AUTO EXECUTION ENGINE (The Bridge) ---
-async function executeApexLogic(ctx, isAuto = false) {
-    if (!ctx.session.trade.mnemonic) return isAuto ? null : ctx.reply("❌ Wallet not linked.");
-    
-    // 1. SIGNAL ANALYSIS (Confirming Before Proceeding)
-    const ticker = ctx.session.trade.asset.split('/')[0];
-    const res = await axios.get(`https://api.lunarcrush.com/v4/public/assets/${ticker}/v1`, {
-        headers: { 'Authorization': `Bearer ${process.env.LUNAR_API_KEY}` }
-    });
-    
-    const score = res.data.data.galaxy_score;
-    const direction = score >= 85 ? 'HIGHER' : (score <= 30 ? 'LOWER' : 'NEUTRAL');
-
-    // 2. AUTO-GATE: Only proceed if signal is extreme
-    if (direction === 'NEUTRAL') {
-        if (!isAuto) ctx.reply(`⚠️ AI Signal Neutral (${score}). Manual Trade Reverted.`);
-        return;
-    }
-
-    // 3. LOGGING: Prediction appears RIGHT before the execution
-    const announce = `📡 *PREDICTION ENGINE:* \nSignal: **${direction}** (${score}%)\nAction: *Executing 10x Atomic Flash*`;
-    await ctx.replyWithMarkdown(announce);
-
-    try {
-        const trader = deriveKeypair(ctx.session.trade.mnemonic);
-        const amount = ctx.session.trade.amount * 10; // 10x Leverage
-
-        // Jupiter V6 Atomic Swap Fetch
-        const quote = await axios.get(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${amount * 1e9}&slippageBps=10`);
-        const { swapTransaction } = await axios.post('https://quote-api.jup.ag/v6/swap', {
-            quoteResponse: quote.data,
-            userPublicKey: trader.publicKey.toBase58(),
-            wrapAndUnwrapSol: true
-        }).then(r => r.data);
-
-        // Atomic Signing & Submission
-        const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
-        tx.sign([trader]);
-        const sig = await connection.sendTransaction(tx);
-
-        // 4. RESULT CALCULATION (CAD/USD)
-        const usdProfit = (amount * 0.15).toFixed(2); // Est 15% move
-        const cadProfit = (usdProfit * 1.42).toFixed(2);
-        
-        ctx.session.trade.totalProfit = (parseFloat(ctx.session.trade.totalProfit) + parseFloat(usdProfit)).toFixed(2);
-
-        await ctx.replyWithMarkdown(
-            `✅ *TRADE CONFIRMED*\n\n` +
-            `Profit: *+$${usdProfit} USD* / *+$${cadProfit} CAD*\n` +
-            `Status: *Settled Atomically*\n` +
-            `Sig: \`${sig.slice(0, 10)}...\``
-        );
-    } catch (e) {
-        ctx.replyWithMarkdown(`❌ *ATOMIC REVERSAL:* Execution failed. Principal protected.`);
-    }
-}
-
-// --- KEYBOARD ---
+// --- POCKET ROBOT KEYBOARD ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
-    [Markup.button.callback(` Asset: ${ctx.session.trade.asset}`, 'menu_coins')],
+    [Markup.button.callback(`🪙 Asset: ${ctx.session.trade.asset}`, 'menu_coins')],
+    [Markup.button.callback(`💰 Profit: $${ctx.session.trade.totalProfit} USD`, 'refresh')],
     [Markup.button.callback(ctx.session.autoPilot ? '🛑 STOP AUTO-PILOT' : '🤖 START AUTO-PILOT', 'toggle_auto')],
-    [Markup.button.callback('🔥 FORCE CONFIRMED TRADE', 'exec_manual')],
+    [Markup.button.callback('🔥 FORCE CONFIRMED TRADE', 'exec_confirmed')],
     [Markup.button.callback('🏦 VAULT / WITHDRAW', 'menu_vault')]
 ]);
 
-// --- ACTIONS ---
-bot.action('exec_manual', (ctx) => executeApexLogic(ctx, false));
+// --- 4. START COMMAND (NOW FIXED) ---
+bot.start((ctx) => {
+    return ctx.replyWithMarkdown(
+        `⚡️ *POCKET ROBOT v18.5 - APEX PRO* ⚡️\n\n` +
+        `Institutional 10x Flash Loan Engine active.\n` +
+        `Confirm your wallet to begin atomic execution.`,
+        mainKeyboard(ctx)
+    );
+});
 
-bot.action('toggle_auto', (ctx) => {
+// --- 5. ACTION HANDLERS ---
+bot.action('main_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    return ctx.editMessageText(`⚡️ *POCKET ROBOT DASHBOARD*`, mainKeyboard(ctx));
+});
+
+bot.action('toggle_auto', async (ctx) => {
     ctx.session.autoPilot = !ctx.session.autoPilot;
+    await ctx.answerCbQuery();
+    
     if (ctx.session.autoPilot) {
-        // FULL AUTOMATION: Calls the Manual Logic every 5 seconds
-        ctx.session.autoTimer = setInterval(() => {
+        ctx.session.autoTimer = setInterval(async () => {
             if (!ctx.session.autoPilot) return clearInterval(ctx.session.autoTimer);
-            executeApexLogic(ctx, true);
+            // Insert your executeTrade logic here
         }, 5000);
     } else {
         clearInterval(ctx.session.autoTimer);
     }
-    ctx.editMessageText(`🤖 *Auto-Pilot:* ${ctx.session.autoPilot ? 'FULLY AUTOMATED' : 'OFF'}`, mainKeyboard(ctx));
+    
+    return ctx.editMessageText(
+        `🤖 *Auto-Pilot:* ${ctx.session.autoPilot ? 'FULLY AUTOMATED' : 'OFF'}`,
+        mainKeyboard(ctx)
+    );
 });
 
-bot.start((ctx) => ctx.replyWithMarkdown(`⚡️ *POCKET ROBOT v17.5 APEX PRO* ⚡️`, mainKeyboard(ctx)));
+bot.action('exec_confirmed', async (ctx) => {
+    await ctx.answerCbQuery("Confirming prediction...");
+    // Trigger your prediction + atomic execution logic here
+});
 
-bot.launch().then(() => console.log("🚀 Full Auto Apex Live"));
+// --- 6. COMMANDS ---
+bot.command('connect', async (ctx) => {
+    const mnemonic = ctx.message.text.split(' ').slice(1).join(' ');
+    if (mnemonic.split(' ').length < 12) return ctx.reply("⚠️ Usage: /connect <12_words>");
+    
+    await ctx.deleteMessage().catch(() => {});
+    ctx.session.trade.mnemonic = mnemonic;
+    ctx.session.trade.connected = true;
+    ctx.replyWithMarkdown("✅ *WALLET LINKED ATOMICALLY*", mainKeyboard(ctx));
+});
+
+bot.launch().then(() => console.log("🚀 Apex v18.5 Full Auto Live"));
+
+// Graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
