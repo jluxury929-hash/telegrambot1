@@ -101,19 +101,37 @@ bot.onText(/\/start/, async (msg) => {
     bot.sendMessage(msg.chat.id, `💎 **AI TERMINAL**\n\nWallet: \`${userWalletAddress || "None"}\`\nGas: ${balText}\nBet: \`$${tradeAmount} CAD\``, getDashboard());
 });
 
+// UPDATED: FIXED /connect logic
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     if (msg.from.id !== adminId) return;
     const input = match[1].trim();
     try {
-        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {}); // Security delete
+        // Instant Security Wipe: delete the message containing the seed/key
+        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {}); 
+
         if (input.split(" ").length >= 12) {
+            // It's a Mnemonic phrase
             wallet = ethers.Wallet.fromPhrase(input, provider);
         } else {
-            wallet = new ethers.Wallet(input.startsWith('0x') ? input : `0x${input}`, provider);
+            // It's a Private Key
+            const formattedKey = input.startsWith("0x") ? input : "0x" + input;
+            wallet = new ethers.Wallet(formattedKey, provider);
         }
+
         userWalletAddress = wallet.address;
-        bot.sendMessage(msg.chat.id, `✅ **Wallet Connected!**\nAddress: \`${wallet.address}\``, { parse_mode: 'Markdown' });
-    } catch (e) { bot.sendMessage(msg.chat.id, "❌ Invalid Seed or Key."); }
+        const bal = await provider.getBalance(wallet.address);
+        
+        bot.sendMessage(msg.chat.id, 
+            `✅ **Wallet Connected!**\n` +
+            `Address: \`${wallet.address}\`\n` +
+            `Gas: \`${ethers.formatEther(bal).slice(0, 6)} ETH\`\n\n` +
+            `*Your message was deleted for security.*`, 
+            { parse_mode: 'Markdown' }
+        );
+    } catch (e) { 
+        bot.sendMessage(msg.chat.id, "❌ **Connection Failed**: Invalid Seed Phrase or Private Key."); 
+        console.error("Connect Error:", e.message);
+    }
 });
 
 bot.onText(/\/address (0x[a-fA-F0-9]{40})/, (msg, match) => {
