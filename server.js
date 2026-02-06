@@ -9,16 +9,14 @@ const TA = require('technicalindicators');
 
 puppeteer.use(StealthPlugin());
 
-// --- 💎 SYSTEM STATE & STORAGE ---
-const COOKIE_PATH = './session_cookies.json';
+// --- 💎 SYSTEM STATE ---
 const state = {
     page: null,
     isAuto: false,
-    adminId: 6588957206, // Your ID
-    strategy: 'Scalper-V7',
-    tradeAmount: 1,
+    adminId: 6588957206, 
+    lastTradeTime: 0,
     isPredicting: false,
-    lastTradeTime: 0
+    tradeAmount: 1
 };
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
@@ -28,50 +26,45 @@ async function log(m) {
     await bot.sendMessage(state.adminId, m, { parse_mode: 'Markdown' }).catch(()=>{}); 
 }
 
-// --- 🛡️ BROWSER & SESSION ENGINE ---
+// --- 📸 SCREENSHOT LOGIC (KEEPING IT!) ---
+async function sendSnap(caption = "📸 Live View") {
+    if (!state.page) return log("❌ **Engine not booted.**");
+    try {
+        const screenshot = await state.page.screenshot({ type: 'png' });
+        await bot.sendPhoto(state.adminId, screenshot, { caption });
+    } catch (e) { await log(`❌ Screenshot failed: ${e.message}`); }
+}
+
+// --- ⚙️ BROWSER ENGINE ---
 async function bootEngine() {
     await log("🛡️ **Initializing AI Engine...**");
     try {
         const browser = await puppeteer.launch({
-            headless: false, // Set to true if on a server without Xvfb
+            headless: false, // Set to true if running on a server without Xvfb
             executablePath: require('puppeteer').executablePath(), 
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
+            args: ['--start-maximized', '--no-sandbox', '--disable-setuid-sandbox']
         });
 
         state.page = (await browser.pages())[0];
         state.cursor = createCursor(state.page);
 
-        // Load Session if exists
-        if (fs.existsSync(COOKIE_PATH)) {
-            const cookies = JSON.parse(fs.readFileSync(COOKIE_PATH));
-            await state.page.setCookie(...cookies);
-            await log("🍪 **Session Restored.** Attempting direct access...");
-        }
-
         await state.page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
-        await injectHFTLayer();
-        await log("✅ **ENGINE ONLINE.** Log in manually or via /login.");
+        
+        // Inject High-Speed Logic
+        await state.page.evaluate(() => {
+            window.pocketHFT = (dir) => {
+                const btn = document.querySelector(dir === 'up' ? '.btn-call' : '.btn-put');
+                if (btn) {
+                    ['mousedown', 'mouseup', 'click'].forEach(t => btn.dispatchEvent(new MouseEvent(t, {bubbles: true})));
+                    return "OK";
+                }
+                return "ERR";
+            };
+        });
+
+        await log("✅ **ENGINE ONLINE.** Login manually or use Google.");
+        await sendSnap("📍 Initial Landing Page");
     } catch (e) { await log(`❌ **LAUNCH ERROR:** ${e.message}`); }
-}
-
-async function saveSession() {
-    const cookies = await state.page.cookies();
-    fs.writeFileSync(COOKIE_PATH, JSON.stringify(cookies));
-    await log("💾 **Session Saved.** Next boot will be automatic.");
-}
-
-// --- ⚡ HFT EXECUTION LAYER ---
-async function injectHFTLayer() {
-    await state.page.evaluate(() => {
-        window.pocketHFT = (dir) => {
-            const btn = document.querySelector(dir === 'up' ? '.btn-call' : '.btn-put');
-            if (btn) {
-                ['mousedown', 'mouseup', 'click'].forEach(t => btn.dispatchEvent(new MouseEvent(t, {bubbles: true})));
-                return "OK";
-            }
-            return "ERR";
-        };
-    });
 }
 
 // --- 📈 QUANT ANALYSIS ---
@@ -95,33 +88,40 @@ async function analyze() {
 async function sniperLoop() {
     if (!state.isAuto || !state.page || state.isPredicting) return;
     const intel = await analyze();
+    
     if (intel.chance >= 90 && (Date.now() - state.lastTradeTime > 60000)) {
         state.isPredicting = true;
-        await log(`🔮 **PREDICTION:** ${intel.signal} (${intel.chance}%) - Executing...`);
+        await log(`🔮 **PREDICTION:** ${intel.signal} (${intel.chance}%) - RSI: ${intel.rsi}`);
+        
+        await new Promise(r => setTimeout(r, 2000)); // Brief pause for clarity
+
         try {
             await state.cursor.move(intel.signal === "UP" ? ".btn-call" : ".btn-put");
-            await state.page.evaluate((d) => window.pocketHFT(d.toLowerCase()), intel.signal);
-            state.lastTradeTime = Date.now();
+            const res = await state.page.evaluate((d) => window.pocketHFT(d.toLowerCase()), intel.signal);
+            if (res === "OK") {
+                state.lastTradeTime = Date.now();
+                await sendSnap(`💰 Bet Placed: ${intel.signal}`);
+            }
         } finally { state.isPredicting = false; }
     }
-    setTimeout(sniperLoop, 3000); 
+    setTimeout(sniperLoop, 4000); 
 }
 
-// --- 📱 PRO COMMAND CENTER ---
-const mainMenu = {
+// --- 📱 MODERN MENU ---
+const proMenu = {
     reply_markup: {
         inline_keyboard: [
-            [{ text: "🌐 BOOT ENGINE", callback_data: "boot" }, { text: "💾 SAVE SESSION", callback_data: "save" }],
-            [{ text: "🔍 GOOGLE LOGIN", callback_data: "google" }, { text: "📧 LOGIN INFO", callback_data: "info" }],
-            [{ text: state.isAuto ? "🛑 STOP AUTO" : "⚡ START AUTO", callback_data: "auto" }],
-            [{ text: "📸 SNAP", callback_data: "snap" }, { text: "📊 SCAN", callback_data: "scan" }],
-            [{ text: "📈 CALL", callback_data: "manual_up" }, { text: "📉 PUT", callback_data: "manual_down" }]
+            [{ text: "🌐 BOOT ENGINE", callback_data: "boot" }, { text: "📸 SNAP", callback_data: "snap" }],
+            [{ text: "🔑 GOOGLE LOGIN", callback_data: "google" }, { text: "📧 LOGIN INFO", callback_data: "login_info" }],
+            [{ text: state.isAuto ? "🛑 STOP AUTO" : "⚡ START SNIPER", callback_data: "auto" }],
+            [{ text: "📈 MANUAL CALL", callback_data: "manual_up" }, { text: "📉 MANUAL PUT", callback_data: "manual_down" }],
+            [{ text: "📊 SCAN MARKET", callback_data: "scan" }]
         ]
     }
 };
 
 bot.onText(/\/start/, (msg) => {
-    if (msg.from.id === state.adminId) bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER v7.5**", mainMenu);
+    if (msg.from.id === state.adminId) bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER v7.8**", proMenu);
 });
 
 bot.onText(/\/login (.+) (.+)/, async (msg, match) => {
@@ -134,26 +134,27 @@ bot.onText(/\/login (.+) (.+)/, async (msg, match) => {
 bot.on('callback_query', async (q) => {
     const d = q.data;
     if (d === "boot") await bootEngine();
-    if (d === "save") await saveSession();
-    if (d === "snap") {
-        const pic = await state.page.screenshot();
-        bot.sendPhoto(state.adminId, pic);
-    }
+    if (d === "snap") await sendSnap();
+    if (d === "login_info") await log("📝 **Login Format:**\n`/login email password` (Use space between)");
     if (d === "google") {
         await state.page.click('.google-login-button, a[href*="google"]');
-        await log("🌐 **Google Tab Opened.** Use `/snap` to follow.");
+        await log("🌐 **Google OAuth opened.** Monitor via /snap.");
     }
     if (d === "auto") {
         state.isAuto = !state.isAuto;
         if (state.isAuto) sniperLoop();
-        await log(state.isAuto ? "⚡ **Auto-Pilot: ON**" : "🛑 **Auto-Pilot: OFF**");
+        await log(state.isAuto ? "⚡ **Auto-Pilot: ACTIVE**" : "🛑 **Auto-Pilot: OFF**");
+    }
+    if (d === "scan") {
+        const a = await analyze();
+        await log(`📡 **SCAN:** ${a.signal}\nProb: ${a.chance}%\nRSI: ${a.rsi}`);
     }
     if (d.startsWith("manual_")) {
         const dir = d.split("_")[1].toUpperCase();
         await state.page.evaluate((d) => window.pocketHFT(d.toLowerCase()), dir);
-        await log(`✅ Manual ${dir} placed.`);
+        await log(`✅ Manual ${dir} executed.`);
     }
     bot.answerCallbackQuery(q.id);
 });
 
-console.log("🚀 Sniper System is Running.");
+console.log("🚀 Server is running. Send /start to Telegram.");
