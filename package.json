@@ -1,7 +1,7 @@
 {
-  "name": "pocket-option-ai-sniper",
-  "version": "6.0.0",
-  "description": "High-Frequency Predictive Bot",
+  "name": "pocket-option-ai-sniper-v7",
+  "version": "7.0.0",
+  "description": "High-Frequency AI Betting Bot",
   "main": "server.js",
   "dependencies": {
     "puppeteer": "^22.0.0",
@@ -12,5 +12,8 @@
     "axios": "^1.6.0",
     "technicalindicators": "^3.1.0",
     "dotenv": "^16.3.0"
+  },
+  "scripts": {
+    "start": "xvfb-run --server-args='-screen 0 1280x1024x24' node server.js"
   }
 }
