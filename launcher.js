@@ -18,18 +18,16 @@ async function startEngine() {
 
     await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
     
-    // Feature Injection: Support for automatic amount setting and time adjustment
     const inject = async () => {
         await page.evaluate(() => {
-            window.pocketControl = {
-                click: (a) => {
-                    const btn = document.querySelector(a === 'call' ? '.btn-call' : '.btn-put');
-                    if (btn) { btn.click(); return "OK"; }
-                    return "BTN_NOT_FOUND";
+            window.pocket = {
+                click: (dir) => {
+                    const btn = document.querySelector(dir === 'up' ? '.btn-call' : '.btn-put');
+                    if (btn) btn.click();
                 },
-                setAmount: (val) => {
-                    const input = document.querySelector('input[name="amount"]');
-                    if (input) { input.value = val; return "SET"; }
+                setAmount: (amt) => {
+                    const inp = document.querySelector('input[name="amount"]');
+                    if (inp) { inp.value = amt; inp.dispatchEvent(new Event('input', {bubbles:true})); }
                 }
             };
         });
