@@ -14,7 +14,7 @@ const state = {
     cursor: null,
     isAuto: false,
     adminId: 6588957206, 
-    strategy: 'HFT-Sniper-V8.9',
+    strategy: 'HFT-Sniper-V9.5-Autonomous',
     isPredicting: false,
     lastTradeTime: 0,
     tempEmail: '',
@@ -29,7 +29,7 @@ async function log(m) {
     await bot.sendMessage(state.adminId, m, { parse_mode: 'Markdown' }).catch(()=>{});
 }
 
-// --- 🛰️ NAVIGATION WATCHER (Login Notifier) ---
+// --- 🛰️ NAVIGATION WATCHER (Login Notifier & Auto-Starter) ---
 async function startWatchingNavigation() {
     if (!state.page) return;
     const checkInterval = setInterval(async () => {
@@ -37,9 +37,16 @@ async function startWatchingNavigation() {
             const url = state.page.url();
             if (url.includes('cabinet') && !state.loggedIn) {
                 state.loggedIn = true;
-                await log("🎊 **LOGIN SUCCESS!** I have detected the trading dashboard.");
+                await log("🎊 **LOGIN SUCCESS!** Dashboard detected.");
+                
+                // Re-inject core trading logic
                 await injectTradingLogic();
-                await log("🚀 **Trading Engine Ready.** Click 'START SNIPER' to begin.");
+                
+                // --- ⚡ AUTO-START LOGIC ---
+                state.isAuto = true; 
+                sniperLoop(); 
+                await log("🚀 **AUTO-PILOT ENGAGED.** The sniper is now live and scanning for signals.");
+                
                 clearInterval(checkInterval);
             }
         } catch (e) {}
@@ -70,7 +77,6 @@ async function bootEngine() {
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--remote-debugging-port=9222',
-                '--remote-debugging-address=0.0.0.0',
                 '--disable-dev-shm-usage',
                 '--disable-blink-features=AutomationControlled'
             ]
@@ -85,35 +91,40 @@ async function bootEngine() {
         await injectTradingLogic();
         startWatchingNavigation();
 
-        await log("✅ **ENGINE ONLINE.**\n\n1. `/email` & `/password` -> `/confirm` \n2. `/i_am_not_a_robot` (if needed) \n3. `/sign_in` to finish login.");
+        await log("✅ **ENGINE ONLINE.**\n\n1. `/email` & `/password` \n2. `/confirm` (Type info)\n3. `/sign_in` (Humanized Submit)");
     } catch (e) {
         await log(`❌ **LAUNCH ERROR:** ${e.message}`);
     }
 }
 
-// --- 🖱️ NON-LINEAR SIGN-IN CLICKER ---
+// --- 🖱️ HUMANIZED SIGN-IN (NON-LINEAR + JITTER) ---
 bot.onText(/\/sign_in/, async (msg) => {
     if (msg.from.id !== state.adminId || !state.page) return;
-    await log("🖱️ **Moving to Sign-In button...**");
+    await log("🖱️ **Initiating Humanized Sign-In (No Teleport)...**");
     try {
         const submitSelector = 'button[type="submit"]';
         const button = await state.page.waitForSelector(submitSelector, { visible: true, timeout: 5000 });
         
         if (button) {
-            // Get button location
             const box = await button.boundingBox();
-            const x = box.x + box.width / 2 + (Math.random() * 10 - 5);
-            const y = box.y + box.height / 2 + (Math.random() * 6 - 3);
-
-            // Move in non-linear curved path
-            await state.cursor.moveTo({ x, y });
             
-            // Human-like click duration
+            // 1. Randomize targets within the button bounds (avoiding absolute center)
+            const targetX = box.x + box.width / 2 + (Math.random() * 10 - 5);
+            const targetY = box.y + box.height / 2 + (Math.random() * 6 - 3);
+
+            // 2. MOVE: Non-linear curved path
+            await state.cursor.moveTo({ x: targetX, y: targetY });
+
+            // 3. HOVER & JITTER: Simulate human eye-checking before click
+            await new Promise(r => setTimeout(r, Math.random() * 400 + 200));
+            await state.page.mouse.move(targetX + 1, targetY + 1, { steps: 5 });
+
+            // 4. CLICK: Randomized duration and micro-drag
             await state.page.mouse.down();
             await new Promise(r => setTimeout(r, Math.random() * 80 + 40));
             await state.page.mouse.up();
             
-            await log("🚀 **Sign-In clicked.** Waiting for dashboard redirect...");
+            await log("🚀 **Sign-In clicked with Entropy.** Watching for redirect...");
         }
     } catch (e) {
         await log(`❌ **Sign-In Error:** ${e.message}`);
@@ -154,13 +165,13 @@ bot.onText(/\/password (.+)/, (msg, m) => { state.tempPass = m[1]; log("🔑 Pas
 
 bot.onText(/\/confirm/, async (msg) => {
     if (msg.from.id !== state.adminId || !state.page) return;
-    if (!state.tempEmail || !state.tempPass) return log("❌ Set credentials first.");
+    if (!state.tempEmail || !state.tempPass) return log("❌ Set info first.");
     
-    await log("⌨️ **Typing credentials...**");
+    await log("⌨️ **Typing with human delays...**");
     try {
         await state.page.type('input[name="email"]', state.tempEmail, { delay: 150 });
         await state.page.type('input[name="password"]', state.tempPass, { delay: 180 });
-        await log("🚀 **Typed.** Check captcha, then use `/sign_in`.");
+        await log("🚀 **Typed.** Use `/sign_in` or solve captcha.");
     } catch (e) { await log("❌ Fields not found."); }
 });
 
@@ -173,18 +184,18 @@ async function analyze() {
         const bb = TA.bollingerbands({ values: closes, period: 20, stdDev: 2 }).pop();
         const price = closes[closes.length - 1];
         let signal = (rsi < 31 && price <= bb.lower) ? "UP" : (rsi > 69 && price >= bb.upper) ? "DOWN" : "NEUTRAL";
-        return { signal, chance: 90, rsi: rsi.toFixed(1) };
+        return { signal, rsi: rsi.toFixed(1) };
     } catch (e) { return { signal: "WAIT" }; }
 }
 
-// --- 🤖 AUTO-PILOT ---
+// --- 🤖 SNIPER AUTO-PILOT ---
 async function sniperLoop() {
     if (!state.isAuto || !state.page || state.isPredicting) return;
     const intel = await analyze();
     
     if (intel.signal !== "NEUTRAL" && (Date.now() - state.lastTradeTime > 60000)) {
         state.isPredicting = true;
-        await log(`🔮 **PREDICTION:** ${intel.signal}`);
+        await log(`🔮 **PREDICTION:** ${intel.signal} (RSI: ${intel.rsi})`);
         try {
             await state.cursor.move(intel.signal === "UP" ? ".btn-call" : ".btn-put");
             await state.page.evaluate((d) => window.pocketExecute(d.toLowerCase()), intel.signal);
@@ -207,7 +218,7 @@ const mainMenu = {
 };
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER v8.9**\nCommands:\n- `/confirm` (Type info)\n- `/i_am_not_a_robot` (Click box)\n- `/sign_in` (Submit login)", mainMenu);
+    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER v9.5**\nStatus: `Awaiting Login`", mainMenu);
 });
 
 bot.on('callback_query', async (q) => {
@@ -229,4 +240,4 @@ bot.on('callback_query', async (q) => {
     bot.answerCallbackQuery(q.id);
 });
 
-console.log("🚀 Server running. Non-linear Sign-in & Notifier Active.");
+console.log("🚀 Autonomous Sniper v9.5 Active.");
