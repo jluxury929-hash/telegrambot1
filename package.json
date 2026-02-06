@@ -1,7 +1,7 @@
 {
   "name": "pocket-robot-ai",
   "version": "1.0.0",
-  "description": "Atomic Binary Options Bot with Jito Protection",
+  "description": "Atomic Binary Options Bot with Mnemonic Support",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
@@ -11,6 +11,8 @@
     "node-telegram-bot-api": "^0.64.0",
     "dotenv": "^16.3.1",
     "bs58": "^5.0.0",
-    "jito-ts": "^1.0.1"
+    "jito-ts": "^1.0.1",
+    "bip39": "^3.1.0",
+    "ed25519-hd-key": "^1.3.0"
   }
 }
