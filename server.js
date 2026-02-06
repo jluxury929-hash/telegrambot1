@@ -14,7 +14,7 @@ const state = {
     cursor: null,
     isAuto: false,
     adminId: 6588957206, 
-    strategy: 'HFT-Sniper-V10-Final',
+    strategy: 'HFT-Sniper-V10-Final-Autonomous',
     isPredicting: false,
     lastTradeTime: 0,
     tempEmail: '',
@@ -29,32 +29,9 @@ async function log(m) {
     await bot.sendMessage(state.adminId, m, { parse_mode: 'Markdown' }).catch(()=>{});
 }
 
-// --- 🛰️ NAVIGATION WATCHER (Auto-Start Logic) ---
-async function startWatchingNavigation() {
-    if (!state.page) return;
-    const checkInterval = setInterval(async () => {
-        try {
-            const url = state.page.url();
-            // Detect if we are in the cabinet/trading room
-            if (url.includes('cabinet') && !state.loggedIn) {
-                state.loggedIn = true;
-                await log("🎊 **DASHBOARD DETECTED!** Preparing engine...");
-                
-                await injectTradingLogic();
-                
-                // --- ⚡ AUTOMATIC START ---
-                state.isAuto = true; 
-                sniperLoop(); 
-                await log("🚀 **AUTO-PILOT ENGAGED.** Trading has started automatically.");
-                
-                clearInterval(checkInterval);
-            }
-        } catch (e) {}
-    }, 2000);
-}
-
 // --- ⚡ TRADING LOGIC INJECTION ---
 async function injectTradingLogic() {
+    if (!state.page) return;
     await state.page.evaluate(() => {
         window.pocketExecute = (dir) => {
             const btn = document.querySelector(dir === 'up' ? '.btn-call' : '.btn-put');
@@ -67,31 +44,61 @@ async function injectTradingLogic() {
     });
 }
 
-// --- ⚙️ BROWSER ENGINE ---
-async function bootEngine() {
+// --- 🛰️ NAVIGATION WATCHER (Auto-Start Logic) ---
+async function startWatchingNavigation() {
+    if (!state.page) return;
+    const checkInterval = setInterval(async () => {
+        try {
+            const url = state.page.url();
+            if (url.includes('cabinet') && !state.loggedIn) {
+                state.loggedIn = true;
+                await log("🎊 **DASHBOARD DETECTED!** Preparing autonomous engine...");
+                
+                await injectTradingLogic();
+                
+                state.isAuto = true; 
+                sniperLoop(); 
+                await log("🚀 **AUTO-PILOT ENGAGED.** Trading has started automatically.");
+                
+                clearInterval(checkInterval);
+            }
+        } catch (e) {}
+    }, 2000);
+}
+
+// --- ⚙️ BROWSER ENGINE (Railway Optimized) ---
+async function bootEngine(queryId) {
+    // Answer Telegram immediately to prevent the "Query is too old" timeout error
+    if (queryId) bot.answerCallbackQuery(queryId).catch(() => {});
+
     await log("🛡️ **Launching Ultra-Stealth Engine...**");
     try {
         const browser = await puppeteer.launch({
-            headless: "new",
+            headless: true, // Headless is required for Railway stability
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--remote-debugging-port=9222',
                 '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled'
-            ]
+                '--disable-gpu',
+                '--remote-debugging-port=9222'
+            ],
+            timeout: 60000 
         });
 
         state.page = (await browser.pages())[0];
         state.cursor = createCursor(state.page);
         
         await state.page.setViewport({ width: 1280, height: 800 });
+        
+        // Increase navigation timeout for slow server boots
+        await state.page.setDefaultNavigationTimeout(90000);
+        
         await state.page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
         
         await injectTradingLogic();
         startWatchingNavigation();
 
-        await log("✅ **ENGINE ONLINE.**\n\nCommands:\n- `/email` & `/password` \n- `/confirm` (Type info)\n- `/sign_in` (Precision Login)\n- `/refresh` (Reset Page)");
+        await log("✅ **ENGINE ONLINE.**\n\nCommands:\n- `/email` & `/password` \n- `/confirm` \n- `/sign_in` \n- `/refresh` \n- `/i_am_not_a_robot` ");
     } catch (e) {
         await log(`❌ **LAUNCH ERROR:** ${e.message}`);
     }
@@ -110,7 +117,7 @@ bot.onText(/\/refresh/, async (msg) => {
     }
 });
 
-// --- 🖱️ HUMANIZED SIGN-IN (FIXED FOR DASHBOARD REDIRECT) ---
+// --- 🖱️ HUMANIZED SIGN-IN ---
 bot.onText(/\/sign_in/, async (msg) => {
     if (msg.from.id !== state.adminId || !state.page) return;
     await log("🖱️ **Initiating Humanized Sign-In...**");
@@ -118,18 +125,13 @@ bot.onText(/\/sign_in/, async (msg) => {
         const submitSelector = 'button[type="submit"]';
         await state.page.waitForSelector(submitSelector, { visible: true, timeout: 5000 });
         
-        // Move to button
-        await state.cursor.click(submitSelector, {
-            hesitate: Math.random() * 400 + 200,
-            waitForClick: Math.random() * 100 + 50
-        });
-
-        await log("🚀 **Sign-In clicked.** Waiting for redirect to finish...");
-        
-        // Wait for the URL change or the dashboard to load
-        await state.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
-            log("⚠️ Navigation taking longer than usual. Check `/snap`.");
-        });
+        await Promise.all([
+            state.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 40000 }),
+            state.cursor.click(submitSelector, {
+                hesitate: Math.random() * 400 + 200,
+                waitForClick: Math.random() * 100 + 50
+            })
+        ]).catch(() => log("⚠️ Navigation took long, still watching for Dashboard..."));
 
     } catch (e) {
         await log(`❌ **Sign-In Error:** ${e.message}`);
@@ -168,9 +170,7 @@ async function analyze() {
         const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=40`);
         const closes = res.data.map(d => parseFloat(d[4]));
         const rsi = TA.rsi({ values: closes, period: 14 }).pop();
-        const bb = TA.bollingerbands({ values: closes, period: 20, stdDev: 2 }).pop();
-        const price = closes[closes.length - 1];
-        let signal = (rsi < 31 && price <= bb.lower) ? "UP" : (rsi > 69 && price >= bb.upper) ? "DOWN" : "NEUTRAL";
+        let signal = (rsi < 31) ? "UP" : (rsi > 69) ? "DOWN" : "NEUTRAL";
         return { signal, rsi: rsi.toFixed(1) };
     } catch (e) { return { signal: "WAIT" }; }
 }
@@ -184,7 +184,7 @@ async function sniperLoop() {
             await state.cursor.move(intel.signal === "UP" ? ".btn-call" : ".btn-put");
             await state.page.evaluate((d) => window.pocketExecute(d.toLowerCase()), intel.signal);
             state.lastTradeTime = Date.now();
-            await log(`💰 **TRADE:** ${intel.signal}`);
+            await log(`💰 **TRADE:** ${intel.signal} (RSI: ${intel.rsi})`);
         } catch (e) {} finally { state.isPredicting = false; }
     }
     setTimeout(sniperLoop, 4000); 
@@ -192,7 +192,7 @@ async function sniperLoop() {
 
 // --- 📱 TELEGRAM UI ---
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER FINAL**", {
+    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER FINAL V10**", {
         reply_markup: {
             inline_keyboard: [
                 [{ text: "🌐 BOOT ENGINE", callback_data: "boot" }],
@@ -204,16 +204,26 @@ bot.onText(/\/start/, (msg) => {
 });
 
 bot.on('callback_query', async (q) => {
-    if (q.data === "boot") await bootEngine();
-    if (q.data === "refresh") {
+    const data = q.data;
+
+    if (data === "boot") {
+        await bootEngine(q.id);
+        return;
+    }
+
+    // Always acknowledge non-boot callbacks immediately
+    bot.answerCallbackQuery(q.id).catch(() => {});
+
+    if (data === "refresh") {
+        if (!state.page) return;
         await state.page.reload();
         await log("🔄 Refreshed.");
     }
-    if (q.data === "snap") {
+    if (data === "snap") {
+        if (!state.page) return;
         const pic = await state.page.screenshot();
         bot.sendPhoto(state.adminId, pic);
     }
-    bot.answerCallbackQuery(q.id);
 });
 
-console.log("🚀 Server running. Auto-Dashboard Start Active.");
+console.log("🚀 Server running. V10 Autonomous Mode Ready.");
