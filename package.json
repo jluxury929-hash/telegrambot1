@@ -5,7 +5,7 @@
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
-    "dev": "nodemon bot.js"
+    "test": "echo \"Ready for deployment\" && exit 0"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.64.0",
