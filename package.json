@@ -1,6 +1,6 @@
 {
-  "name": "ai-pocket-sniper-pro",
-  "version": "10.5.0",
+  "name": "ai-pocket-sniper-final",
+  "version": "10.8.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
