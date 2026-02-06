@@ -1,112 +1,94 @@
 require('dotenv').config();
-const { ethers } = require('ethers');
 const TelegramBot = require('node-telegram-bot-api');
-const vader = require('vader-sentiment');
 const axios = require('axios');
-const WebSocket = require('ws');
+const vader = require('vader-sentiment');
 
-// --- 1. CONFIG & AUTH ---
-const token = process.env.TELEGRAM_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
-const adminId = 6588957206; 
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
+const adminId = 6588957206;
 
-// --- 2. GLOBAL STATE ---
 let isAuto = false;
-let tradeAmount = 10; // Default CAD
-let lastSignal = { asset: "BTCUSD_otc", sig: "WAITING", conf: "0%" };
-let dynamicAssets = ["BTCUSD_otc", "ETHUSD_otc", "SOLUSD_otc", "BNBUSD_otc"];
+let tradeAmount = 10;
+let autoLoop = null;
 
-// --- 3. THE START MENU UI ---
-const getMainMenu = () => {
-    return {
-        parse_mode: 'Markdown',
+// --- 🎯 CORE EXECUTION (HUMANIZED) ---
+async function placeTrade(direction, chatId) {
+    const page = global.brokerPage;
+    const cursor = global.ghostCursor;
+    if (!page) return bot.sendMessage(chatId, "❌ Bridge Lost.");
+
+    const action = direction.includes("HIGHER") ? "call" : "put";
+    const btnSelector = action === 'call' ? '.btn-call' : '.btn-put';
+
+    try {
+        // Human Jitter (0.8s - 2.5s reaction time)
+        await new Promise(r => setTimeout(r, 800 + Math.random() * 1700));
+        
+        // Curved Mouse Movement (Physics-based)
+        await cursor.move(btnSelector);
+        
+        // Physical UI Click
+        const result = await page.evaluate((act) => window.humanTrade(act), action);
+        
+        if (result === "SUCCESS") {
+            bot.sendMessage(chatId, `🚀 **Trade Placed!**\nAction: \`${direction}\`\nMode: \`Ghost-Stealth\``, { parse_mode: 'Markdown' });
+        }
+    } catch (e) { bot.sendMessage(chatId, "❌ UI Error."); }
+}
+
+// --- 🧠 AI ANALYSIS ---
+async function analyze(asset) {
+    try {
+        const coin = asset.split('USD')[0];
+        const news = await axios.get(`https://min-api.cryptocompare.com/data/v2/news/?categories=${coin}&lang=EN`);
+        const headlines = news.data.Data.slice(0, 3).map(n => n.title).join(". ");
+        const score = vader.SentimentIntensityAnalyzer.polarity_scores(headlines).compound;
+        
+        if (score > 0.45) return { sig: "HIGHER 📈", conf: "91%" };
+        if (score < -0.45) return { sig: "LOWER 📉", conf: "86%" };
+        return { sig: "NEUTRAL ⚖️", conf: "12%" };
+    } catch (e) { return { sig: "WAITING", conf: "0%" }; }
+}
+
+// --- 🔄 AUTO-PILOT LOOP ---
+async function startAutoLoop(chatId) {
+    if (!isAuto) return;
+    
+    const result = await analyze("BTCUSD_otc");
+    if (result.sig.includes("📈") || result.sig.includes("📉")) {
+        bot.sendMessage(chatId, `🤖 **Auto-Pilot Signal**\nAsset: \`BTCUSD\`\nSignal: \`${result.sig}\`\n*Executing...*`);
+        await placeTrade(result.sig, chatId);
+    }
+    
+    autoLoop = setTimeout(() => startAutoLoop(chatId), 120000); // Check every 2 mins
+}
+
+// --- 📱 COMMANDS & MENU ---
+bot.onText(/\/start/, (msg) => {
+    if (msg.from.id !== adminId) return;
+    bot.sendMessage(msg.chat.id, "💎 **STEALTH TERMINAL**", {
         reply_markup: {
             inline_keyboard: [
-                // Row 1: The big toggle button
-                [{ text: isAuto ? '🛑 STOP AUTO-PILOT' : '🚀 START AUTO-PILOT', callback_data: 'toggle_auto' }],
-                
-                // Row 2: Asset Scanning
-                [{ text: `🔍 SCAN ${dynamicAssets[0]}`, callback_data: `scan_${dynamicAssets[0]}` },
-                 { text: `🔍 SCAN ${dynamicAssets[1]}`, callback_data: `scan_${dynamicAssets[1]}` }],
-                
-                // Row 3: Asset Scanning
-                [{ text: `🔍 SCAN ${dynamicAssets[2]}`, callback_data: `scan_${dynamicAssets[2]}` },
-                 { text: `🔍 SCAN ${dynamicAssets[3]}`, callback_data: `scan_${dynamicAssets[3]}` }],
-                
-                // Row 4: Utility
-                [{ text: '🔄 REFRESH MARKETS', callback_data: 'refresh' },
-                 { text: '💰 STATUS', callback_data: 'status' }]
+                [{ text: isAuto ? '🛑 STOP AUTO' : '🚀 START AUTO', callback_data: 'toggle_auto' }],
+                [{ text: '📊 SIGNAL: BTC', callback_data: 'sig_BTC' }, { text: '📊 SIGNAL: ETH', callback_data: 'sig_ETH' }],
+                [{ text: '📈 EXECUTE HIGHER', callback_data: 'exec_up' }, { text: '📉 EXECUTE LOWER', callback_data: 'exec_down' }]
             ]
         }
-    };
-};
-
-// --- 4. COMMAND: /start ---
-bot.onText(/\/start/, async (msg) => {
-    if (msg.from.id !== adminId) return;
-
-    const welcomeMsg = 
-        `💎 **AI STEALTH TERMINAL**\n` +
-        `━━━━━━━━━━━━━━━━━━\n` +
-        `Status: \`Online\`\n` +
-        `Mode: \`Ghost-Stealth 2026\`\n` +
-        `Current Stake: \`$${tradeAmount} CAD\`\n\n` +
-        `*Select an option below to begin:*`;
-
-    bot.sendMessage(msg.chat.id, welcomeMsg, getMainMenu());
+    });
 });
 
-// --- 5. HANDLING BUTTON CLICKS ---
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
-    const messageId = query.message.message_id;
-    const data = query.data;
-
-    // Acknowledge the click (removes the "loading" circle on the button)
-    bot.answerCallbackQuery(query.id);
-
-    if (data === 'toggle_auto') {
+    if (query.data === 'toggle_auto') {
         isAuto = !isAuto;
-        const status = isAuto ? "ACTIVATED" : "DEACTIVATED";
-        
-        // Update the menu to show the new button state
-        bot.editMessageText(`💎 **AUTO-PILOT ${status}**\nAdjusting systems...`, {
-            chat_id: chatId,
-            message_id: messageId,
-            ...getMainMenu()
-        });
-
-        if (isAuto) {
-            // Your logic to start the automated trading loop
-            console.log("Auto-Pilot Started");
-        }
+        if (isAuto) startAutoLoop(chatId);
+        else clearTimeout(autoLoop);
+        bot.sendMessage(chatId, `Auto-Pilot: ${isAuto ? "ON" : "OFF"}`);
     }
-
-    if (data === 'refresh') {
-        // Logic to update dynamicAssets from Binance/API
-        bot.editMessageText(`🔄 **MARKETS REFRESHED**\nUpdating volatility data...`, {
-            chat_id: chatId,
-            message_id: messageId,
-            ...getMainMenu()
-        });
+    if (query.data === 'sig_BTC') {
+        const res = await analyze("BTCUSD_otc");
+        bot.sendMessage(chatId, `🎯 **BTC Signal:** ${res.sig} (${res.conf})`);
     }
-
-    if (data.startsWith('scan_')) {
-        const asset = data.split('_')[1] + "_otc";
-        bot.sendMessage(chatId, `🎯 **Scanning ${asset}...**`);
-        // Trigger your analyze(asset) function here
-    }
-
-    if (data === 'status') {
-        bot.sendMessage(chatId, `📈 **SYSTEM STATUS**\nConnection: \`Secure\`\nBridge: \`Active\`\nWallet: \`Linked\``);
-    }
+    if (query.data === 'exec_up') placeTrade("HIGHER 📈", chatId);
+    if (query.data === 'exec_down') placeTrade("LOWER 📉", chatId);
+    bot.answerCallbackQuery(query.id);
 });
-
-// --- 6. UTILITY COMMANDS ---
-bot.onText(/\/amount (\d+)/, (msg, match) => {
-    if (msg.from.id !== adminId) return;
-    tradeAmount = parseInt(match[1]);
-    bot.sendMessage(msg.chat.id, `✅ Trade amount set to \`$${tradeAmount} CAD\``);
-});
-
-console.log("🚀 Bot is live. Type /start in Telegram.");
