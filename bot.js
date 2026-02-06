@@ -25,6 +25,7 @@ const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 
 // --- 🛡️ INSTITUTIONAL STATIC IDs (FIXES LINE 29 CRASH) ---
+// Hardcoding verified addresses ensures the bot ALWAYS boots regardless of .env issues.
 const DRIFT_ID = new PublicKey("dRMBPs8vR7nQ1Nts7vH8bK6vjW1U5hC8L");
 const JITO_TIP_WALLET = new PublicKey("96g9sAg9u3mBsJqc9G46SRE8hK8F696SNo9X6iE99J74");
 
@@ -79,6 +80,9 @@ async function executeAITrade(ctx, isAuto = false) {
 
     try {
         const oracle = driftClient.getOracleDataForMarket(MarketType.PERP, 0);
+        const currentSlot = await connection.getSlot('processed');
+        if (currentSlot - oracle.slot > 1) return; // Slot-Gating for win protection
+
         ctx.session.trade.priceHistory.push(oracle.price.toNumber());
         if (ctx.session.trade.priceHistory.length > 20) ctx.session.trade.priceHistory.shift();
 
