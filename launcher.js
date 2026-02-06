@@ -1,52 +1,43 @@
+// launcher.js
 require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createCursor } = require('ghost-cursor');
 const path = require('path');
-const bridge = require('./browserManager');
+const bridge = require('./bridge'); // Import our new bridge
 
 puppeteer.use(StealthPlugin());
 
-async function startGhostBridge() {
-    const extensionPath = path.join(process.cwd(), 'pocket-ext');
-
-    console.log("🛡️ Launching Stealth Browser...");
+async function start() {
+    console.log("🚀 Starting Stealth Engine...");
     const browser = await puppeteer.launch({
-        headless: false, // 2026 Detection Rule: Headless = Ban
-        executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", 
-        args: [
-            `--disable-extensions-except=${extensionPath}`,
-            `--load-extension=${extensionPath}`,
-            '--disable-blink-features=AutomationControlled',
-            '--start-maximized'
-        ]
+        headless: false,
+        executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        args: [`--load-extension=${path.join(process.cwd(), 'pocket-ext')}`, '--start-maximized']
     });
 
     const page = (await browser.pages())[0];
     const cursor = createCursor(page);
 
     await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
+    console.log("🔑 Please login manually. Bot is waiting...");
 
-    console.log("🔑 PLEASE LOGIN MANUALLY IN THE BROWSER...");
-    // Wait until the dashboard URL is reached
     await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
 
-    // Inject Human UI Click logic
+    // Inject the internal click function
     await page.evaluate(() => {
-        window.humanTrade = (action) => {
+        window.humanClick = (action) => {
             const btn = document.querySelector(action === 'call' ? '.btn-call' : '.btn-put');
-            if (btn) {
-                btn.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true }));
-                return "SUCCESS";
-            }
-            return "UI_NOT_FOUND";
+            if (btn) { btn.click(); return "OK"; }
+            return "ERR";
         };
     });
 
-    bridge.setBridge(page, cursor);
-    console.log("✅ Bridge Secured. Initializing Bot...");
-
+    // LOCK THE BRIDGE
+    bridge.init(page, cursor);
+    
+    console.log("✅ Bridge is Secure. Launching Bot...");
     require('./bot.js'); 
 }
 
-startGhostBridge().catch(err => console.error("💥 Launcher Crash:", err));
+start().catch(e => console.error("Launcher Error:", e));
