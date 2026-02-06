@@ -1,61 +1,52 @@
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import time
+from solana.rpc.api import Client
+from solders.keypair import Keypair
+from jito_searcher_client import JitoBlockEngine # Conceptual lib
 
-# --- Configuration & Mock Data ---
-# In a real app, use a secure .env file for sensitive data
-# DO NOT store seed phrases in code.
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# --- SETUP ---
+RPC_URL = "https://your-staked-rpc-endpoint"
+solana_client = Client(RPC_URL)
+# WARNING: Use an environment variable, NEVER hardcode a seed phrase.
+TRADER_KEY = Keypair.from_base58_string("YOUR_PRIVATE_KEY") 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📈 Manual Mode", callback_query_data='manual'),
-         InlineKeyboardButton("🤖 Auto-Pilot", callback_query_data='auto')],
-        [InlineKeyboardButton("💰 Wallet / Balance", callback_query_data='wallet')],
-        [InlineKeyboardButton("📊 History", callback_query_data='history')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "⚡️ **POCKET ROBOT AI (SOLANA EDITION)** ⚡️\n\n"
-        "Welcome! Choose your trading mode below.\n"
-        "Using **Jito Atomic Bundling** for revert protection.",
-        reply_markup=reply_markup, parse_mode='Markdown'
-    )
-
-async def manual_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+def create_binary_trade_bundle(prediction, amount_sol):
+    """
+    prediction: 'UP' or 'DOWN'
+    amount_sol: Flash loan or wallet balance used for the bet
+    """
+    # 1. Get Fresh Blockhash (Crucial for 5s intervals)
+    recent_blockhash = solana_client.get_latest_blockhash().value.blockhash
     
-    keyboard = [
-        [InlineKeyboardButton("BTC/USD (1m)", callback_query_data='bet_btc_1m')],
-        [InlineKeyboardButton("ETH/USD (1m)", callback_query_data='bet_eth_1m')],
-        [InlineKeyboardButton("⬅️ Back", callback_query_data='back_main')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text("📍 **Manual Mode**: Select an Asset Pair", reply_markup=reply_markup, parse_mode='Markdown')
+    # 2. Construct the Trade Instruction
+    # This calls your custom Solana Program that checks the Pyth Oracle price
+    trade_ix = construct_bet_instruction(prediction, amount_sol, TRADER_KEY.pubkey())
+    
+    # 3. Construct the Jito Tip Instruction
+    # Tipping ensures your bundle is picked up by the Jito-Solana validator
+    tip_amount = 1000000 # 0.001 SOL (Adjust based on network congestion)
+    tip_ix = construct_jito_tip(tip_amount)
+    
+    # 4. Atomic Bundle Logic
+    # We bundle [Trade, Tip]. If 'Trade' logic fails (Price didn't move),
+    # the 'Tip' is never paid, and the transaction reverts.
+    bundle = [trade_ix, tip_ix]
+    
+    return bundle
 
-async def auto_pilot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    # In a real bot, this would start a background loop tracking prices
-    msg = (
-        "🤖 **Auto-Pilot Engaged**\n"
-        "--------------------------\n"
-        "🔍 Scanning for 5s interval opportunities...\n"
-        "📡 Jito Tip: 0.001 SOL\n"
-        "✅ Active Trade: BTC/USD [CALL] - Pending Bundle..."
-    )
-    await query.edit_message_text(msg, parse_mode='Markdown')
+def run_autopilot():
+    print("🤖 AUTO-PILOT: Scanning Oracles...")
+    while True:
+        # Check price movement every 5 seconds
+        signal = get_market_signal("BTC/USD") 
+        
+        if signal:
+            print(f"⚡️ Signal Detected: {signal['direction']}! Submitting Bundle...")
+            bundle = create_binary_trade_bundle(signal['direction'], 10.5)
+            
+            # Send to Jito Block Engine
+            result = jito_engine.send_bundle(bundle)
+            print(f"✅ Bundle Submitted. ID: {result}")
+            
+        time.sleep(5) # 5-second interval heartbeat
 
-# --- Main Logic ---
-if __name__ == '__main__':
-    # Replace 'YOUR_TOKEN' with your actual bot token from BotFather
-    app = ApplicationBuilder().token("YOUR_TOKEN").build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(manual_mode, pattern='manual'))
-    app.add_handler(CallbackQueryHandler(auto_pilot, pattern='auto'))
-    
-    print("Bot is running...")
-    app.run_polling()
+# run_autopilot()
