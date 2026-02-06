@@ -1,72 +1,59 @@
 require('dotenv').config();
+const { ethers } = require('ethers'); // For Wallet Interactions
 const TelegramBot = require('node-telegram-bot-api');
-const { RSI } = require('technicalindicators');
-const vader = require('vader-sentiment');
-const axios = require('axios');
-const WebSocket = require('ws');
 
-// --- ACCESS GRANTED ---
-const token = process.env.TELEGRAM_TOKEN;
-const adminId = 6588957206; // Hardcoded your ID for instant access
-const bot = new TelegramBot(token, { polling: true });
+// --- 1. WALLET CONFIGURATION ---
+// DO NOT put your real seed phrase in the code. 
+// Use a Private Key of a FRESH wallet in your .env file.
+const provider = new ethers.JsonRpcProvider("https://mainnet.infura.io/v3/YOUR_INFURA_KEY");
+const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-let isAuto = false;
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
+const ADMIN_ID = 6588957206;
 
-// --- THE FULL APP MENU ---
-const getDashboard = () => ({
-    parse_mode: 'Markdown',
-    reply_markup: {
-        inline_keyboard: [
-            [{ text: isAuto ? '🛑 STOP GLOBAL AUTO' : '🚀 START GLOBAL AUTO', callback_data: 'toggle_auto' }],
-            [
-                { text: '₿ BTC/USD', callback_data: 'scan_BTCUSD_otc' },
-                { text: 'Ξ ETH/USD', callback_data: 'scan_ETHUSD_otc' }
-            ],
-            [
-                { text: '☀️ SOL/USD', callback_data: 'scan_SOLUSD_otc' },
-                { text: '🔶 BNB/USD', callback_data: 'scan_BNBUSD_otc' }
-            ],
-            [{ text: '🔄 REFRESH SYSTEM', callback_data: 'refresh' }]
-        ]
-    }
+let currentBetAmount = "0.001"; // Default in ETH/BNB
+
+// --- 2. COMMAND: /execute ---
+bot.onText(/\/execute/, async (msg) => {
+    if (msg.from.id !== ADMIN_ID) return;
+
+    bot.sendMessage(msg.chat.id, "🚀 **PRE-TRADE CONFIRMATION**\n\n" +
+        `Asset: \`BTC/USD (via AI Signal)\`\n` +
+        `Amount: \`${currentBetAmount} CAD/ETH\`\n` +
+        `Wallet: \`${wallet.address.slice(0,6)}...${wallet.address.slice(-4)}\`\n\n` +
+        "Click below to authorize this blockchain transaction.", {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: [[{ text: '✅ CONFIRM & SIGN BET', callback_data: 'confirm_execution' }]]
+        }
+    });
 });
 
-// --- START COMMAND HANDLER ---
-bot.onText(/\/start/, (msg) => {
-    // Security verification
-    if (msg.from.id !== adminId) {
-        return bot.sendMessage(msg.chat.id, `❌ **Access Denied.**\nYour ID: \`${msg.from.id}\``, { parse_mode: 'Markdown' });
-    }
+// --- 3. COMMAND: /payout [address] [amount] ---
+bot.onText(/\/payout (.+) (.+)/, async (msg, match) => {
+    if (msg.from.id !== ADMIN_ID) return;
+    
+    const targetAddress = match[1];
+    const amount = match[2];
 
-    const appTitle = `💎 **AI TRADING TERMINAL v5.0**\n\n` +
-                     `Status: \`Authenticated\`\n` +
-                     `Accuracy: \`65-85% Institutional Predictors\`\n\n` +
-                     `*Welcome back, Administrator.*`;
-
-    bot.sendMessage(msg.chat.id, appTitle, getDashboard());
-});
-
-// --- INTERACTIVE BUTTON HANDLER ---
-bot.on('callback_query', async (query) => {
-    const chatId = query.message.chat.id;
-    const msgId = query.message.message_id;
-
-    if (query.data === 'toggle_auto') {
-        isAuto = !isAuto;
-        await bot.editMessageText(`💎 **AI TRADING TERMINAL**\n\nAuto-Mode: ${isAuto ? "✅ `ON`" : "🛑 `OFF`"}`, {
-            chat_id: chatId, message_id: msgId, ...getDashboard()
+    bot.sendMessage(msg.chat.id, `💸 **Initiating Payout...**\nSending ${amount} to ${targetAddress}`);
+    
+    try {
+        const tx = await wallet.sendTransaction({
+            to: targetAddress,
+            value: ethers.parseEther(amount) 
         });
+        bot.sendMessage(msg.chat.id, `✅ **Success!**\nTX Hash: \`${tx.hash}\``, { parse_mode: 'Markdown' });
+    } catch (e) {
+        bot.sendMessage(msg.chat.id, "❌ **Transaction Failed:** Check balance/gas.");
     }
-
-    if (query.data.startsWith('scan_')) {
-        const asset = query.data.split('_')[1];
-        await bot.answerCallbackQuery(query.id, { text: `AI scanning ${asset}...` });
-        
-        // AI Analysis Mock Result (Replace with live logic as built before)
-        const report = `🎯 **Result for ${asset}**\n\nSignal: \`HIGHER 📈\`\nConf: \`87%\` | RSI: \`31\`\n\n_Analysis: Bullish news detected._`;
-        await bot.editMessageText(report, { chat_id: chatId, message_id: msgId, ...getDashboard() });
-    }
-    bot.answerCallbackQuery(query.id);
 });
 
-console.log("🚀 Terminal Online. Access granted to ID: 6588957206");
+// --- 4. CALLBACK HANDLER ---
+bot.on('callback_query', async (query) => {
+    if (query.data === 'confirm_execution') {
+        bot.answerCallbackQuery(query.id, { text: "Signing Transaction..." });
+        // Here, the bot would interact with a Smart Contract or Exchange API
+        bot.sendMessage(query.message.chat.id, "⚡ **Bet Executed on Blockchain.**\nWaiting for 1-minute candle result...");
+    }
+});
