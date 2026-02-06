@@ -2,7 +2,7 @@
 name = "aegis_bot"
 version = "0.1.0"
 edition = "2021"
-# This tells Railway which binary to run by default
+# Critical for Railway to find the right binary
 default-run = "aegis_bot"
 
 [dependencies]
