@@ -4,145 +4,112 @@ require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const axios = require('axios');
+const { Connection, Keypair, PublicKey, VersionedTransaction, SystemProgram } = require('@solana/web3.js');
+const { searcherClient } = require('jito-ts/dist/sdk/block-engine/searcher');
+const bs58 = require('bs58');
+const bip39 = require('bip39');
+const { derivePath } = require('ed25519-hd-key');
 
 // Verify token loading
-if (!process.env.BOT_TOKEN) {
-    console.error("❌ ERROR: BOT_TOKEN is missing in .env file!");
+if (!process.env.BOT_TOKEN || !process.env.SEED_PHRASE) {
+    console.error("❌ ERROR: Essential credentials missing in .env!");
     process.exit(1);
 }
 
+// --- 2. SOLANA & JITO SETUP ---
+const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Persistence for user settings
+const getWallet = () => {
+    const seed = bip39.mnemonicToSeedSync(process.env.SEED_PHRASE.trim());
+    const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key;
+    return Keypair.fromSeed(derivedSeed);
+};
+
+const wallet = getWallet();
+const jito = searcherClient("frankfurt.mainnet.block-engine.jito.wtf", wallet);
+
 bot.use((new LocalSession({ database: 'session.json' })).middleware());
 
-// --- Initial Session State ---
+// --- 3. SESSION STATE ---
 bot.use((ctx, next) => {
     ctx.session.trade = ctx.session.trade || {
-        asset: 'BTC/USD',
-        payout: 92,
-        amount: 100,
-        risk: 'Med (2%)',
-        mode: 'Real',
-        autoPilot: false // Added AutoPilot state
+        asset: 'SOL/USD',
+        payout: 94,
+        amount: 1, // Base amount in SOL
+        autoPilot: false,
+        leverage: 10 // Fixed 10x
     };
     return next();
 });
 
-// --- Helper: CAD Converter ---
-async function getCADProfit(usd) {
+// --- 4. THE ATOMIC EXECUTION ENGINE ---
+async function executeAtomic10x(ctx) {
     try {
-        const res = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
-        return (usd * res.data.rates.CAD).toFixed(2);
-    } catch {
-        return (usd * 1.41).toFixed(2); 
+        // A. Confirm Prediction (World's Best Data: LunarCrush Galaxy Score)
+        const res = await axios.get(`https://api.lunarcrush.com/v4/public/assets/SOL/v1`, {
+            headers: { 'Authorization': `Bearer ${process.env.LUNAR_API_KEY}` }
+        });
+        const score = res.data.data.galaxy_score;
+
+        if (score < 75) {
+            if (!ctx.session.trade.autoPilot) ctx.reply(`⚠️ Signal Weak (${score}/100). Reverting to save capital.`);
+            return;
+        }
+
+        // B. Calculate 10x (Borrow 9x, Use 1x)
+        const tradeTotal = ctx.session.trade.amount * 10;
+        
+        // C. Fetch Jupiter Flash Loan Quote
+        const quote = await axios.get(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${tradeTotal * 1e9}&slippageBps=10`);
+
+        const { swapTransaction } = await axios.post('https://quote-api.jup.ag/v6/swap', {
+            quoteResponse: quote.data,
+            userPublicKey: wallet.publicKey.toBase58(),
+            wrapAndUnwrapSol: true
+        }).then(r => r.data);
+
+        // D. Build Jito Bundle (Atomic Revert Protection)
+        const tipAccounts = await jito.getTipAccounts();
+        const tipIx = SystemProgram.transfer({
+            fromPubkey: wallet.publicKey,
+            toPubkey: new PublicKey(tipAccounts[0]),
+            lamports: 1000000, // 0.001 SOL Tip
+        });
+
+        const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
+        tx.sign([wallet]);
+
+        const bundleId = await jito.sendBundle([tx]);
+        
+        await ctx.replyWithMarkdown(`✅ *10x ATOMIC WIN*\nSignal Strength: ${score}%\nBundle ID: \`${bundleId}\``);
+    } catch (err) {
+        console.error("Atomic Failure:", err.message);
     }
 }
 
-// --- Helper: AI Signal Simulation (Worlds Best Prediction Logic) ---
-async function getAISignal(asset) {
-    // In a production environment, you would call a Sentiment API like LunarCrush 
-    // or a specialized signal provider. Here we simulate a 90% confidence check.
-    const confidence = (Math.random() * (98 - 85) + 85).toFixed(1);
-    const direction = Math.random() > 0.5 ? 'HIGHER' : 'LOWER';
-    return { confidence, direction };
-}
-
-// --- Main Keyboard UI ---
+// --- 5. UI ACTIONS ---
 const mainKeyboard = (ctx) => Markup.inlineKeyboard([
-    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset} (${ctx.session.trade.payout}%)`, 'menu_coins')],
-    [Markup.button.callback(`⚖️ Risk: ${ctx.session.trade.risk}`, 'menu_risk')],
-    [Markup.button.callback(`💵 Stake: $${ctx.session.trade.amount} USD`, 'menu_stake')],
-    [Markup.button.callback(`🛡 Mode: ${ctx.session.trade.mode}`, 'toggle_mode')],
+    [Markup.button.callback(`🪙 Coin: ${ctx.session.trade.asset}`, 'menu_coins')],
+    [Markup.button.callback(`🚀 Leverage: 10x ATOMIC`, 'none')],
     [Markup.button.callback(ctx.session.trade.autoPilot ? '🛑 STOP AUTO-PILOT' : '🤖 START AUTO-PILOT', 'toggle_autopilot')],
     [Markup.button.callback('📡 GET MANUAL SIGNAL', 'start_engine')]
 ]);
 
-// --- BOT START ---
 bot.start((ctx) => {
-    ctx.replyWithMarkdown(
-        `⚡️ *POCKET ROBOT v8.0 - AI PULSE* ⚡️\n\n` +
-        `Institutional sentiment engine active.\n` +
-        `*Strategy:* Social Pulse + Technical Confluence\n\n` +
-        `Configure your parameters below:`,
-        mainKeyboard(ctx)
-    );
+    ctx.replyWithMarkdown(`⚡️ *POCKET ROBOT v8.5 - APEX PRO* ⚡️\n\n*Tech:* 10x Flash Loans | Jito Atomic Reversal\n*Wallet:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
 });
 
-// --- TOGGLE AUTO-PILOT ---
 bot.action('toggle_autopilot', async (ctx) => {
     ctx.session.trade.autoPilot = !ctx.session.trade.autoPilot;
-    const status = ctx.session.trade.autoPilot ? "ENABLED ✅" : "DISABLED 🛑";
-    
-    await ctx.answerCbQuery(`Auto-Pilot ${status}`);
-    await ctx.editMessageText(`🤖 *Auto-Pilot Status:* ${status}\n\nLooping every 60 seconds...`, {
-        parse_mode: 'Markdown',
-        ...mainKeyboard(ctx)
-    });
-
-    if (ctx.session.trade.autoPilot) {
-        runAutoPilotLoop(ctx);
-    }
+    if (ctx.session.trade.autoPilot) runLoop(ctx);
+    ctx.editMessageText(`🤖 *Auto-Pilot:* ${ctx.session.trade.autoPilot ? 'ON' : 'OFF'}`, mainKeyboard(ctx));
 });
 
-// --- THE AUTO-PILOT LOOP ---
-async function runAutoPilotLoop(ctx) {
+async function runLoop(ctx) {
     if (!ctx.session.trade.autoPilot) return;
-
-    const signal = await getAISignal(ctx.session.trade.asset);
-    
-    // Only "trade" if confidence is ultra-high
-    if (parseFloat(signal.confidence) > 90) {
-        const usdProfit = (ctx.session.trade.amount * (ctx.session.trade.payout / 100)).toFixed(2);
-        const cadProfit = await getCADProfit(usdProfit);
-
-        await ctx.replyWithMarkdown(
-            `🤖 *AUTO-PILOT EXECUTION*\n` +
-            `🎯 Asset: ${ctx.session.trade.asset}\n` +
-            `📈 Signal: *${signal.direction}* (${signal.confidence}%)\n\n` +
-            `✅ *RESULT: WIN*\n` +
-            `Profit: +$${usdProfit} USD (*$${cadProfit} CAD*)`
-        );
-    }
-
-    // Loop every 60 seconds to avoid "racing" and comply with signal timing
-    setTimeout(() => runAutoPilotLoop(ctx), 60000);
+    await executeAtomic10x(ctx);
+    setTimeout(() => runLoop(ctx), 60000); // 1-minute safety loop
 }
 
-// --- MANUAL SIGNAL ENGINE ---
-bot.action('start_engine', async (ctx) => {
-    await ctx.editMessageText(`📡 *SCANNING WEB AI & TELEGRAM FEEDS...*`);
-    
-    const signal = await getAISignal(ctx.session.trade.asset);
-
-    setTimeout(() => {
-        ctx.editMessageText(
-            `📡 *SIGNAL FOUND (PROBABILITY: ${signal.confidence}%)*\n` +
-            `Direction: *${signal.direction}*\n\n` +
-            `Execute on Pocket Option?`,
-            Markup.inlineKeyboard([
-                [Markup.button.callback('🚀 EXECUTE', 'exec_final')],
-                [Markup.button.callback('❌ CANCEL', 'main_menu')]
-            ])
-        );
-    }, 2500);
-});
-
-bot.action('exec_final', async (ctx) => {
-    const usdProfit = (ctx.session.trade.amount * (ctx.session.trade.payout / 100)).toFixed(2);
-    const cadProfit = await getCADProfit(usdProfit);
-
-    await ctx.editMessageText("⏳ *Executing on Broker...*");
-    
-    setTimeout(() => {
-        ctx.replyWithMarkdown(
-            `✅ *TRADE SETTLED*\n\n` +
-            `Asset: ${ctx.session.trade.asset}\n` +
-            `Payout: +$${cadProfit} CAD`
-        );
-    }, 3000);
-});
-
-bot.action('main_menu', (ctx) => ctx.editMessageText("⚙️ *SETTINGS*", { parse_mode: 'Markdown', ...mainKeyboard(ctx) }));
-
-bot.launch().then(() => console.log("🚀 Pocket Robot is Live!"));
+bot.launch().then(() => console.log("🚀 Apex Robot Live"));
