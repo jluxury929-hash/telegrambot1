@@ -1,52 +1,53 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createCursor } = require('ghost-cursor');
-const fs = require('fs');
 
 puppeteer.use(StealthPlugin());
 
-async function startHumanSession() {
-    console.log("🕵️ Starting Humanized Stealth Session...");
+async function startGhostBridge() {
+    console.log("🛡️ Initializing Ghost-Stealth Bridge...");
     
     const browser = await puppeteer.launch({
-        headless: false, // 2026 Rule: Never use headless mode for brokers
+        headless: false, // MANDATORY: Headless is an instant ban in 2026.
+        executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", // Use your REAL Chrome
         args: [
             '--disable-blink-features=AutomationControlled',
-            '--window-size=1920,1080',
-            '--start-maximized'
+            '--start-maximized',
+            '--no-sandbox'
         ]
     });
 
-    const page = await browser.newPage();
-    const cursor = createCursor(page); // Injects natural mouse movement curves
-
-    // Set a realistic high-end User Agent
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-
+    const page = (await browser.pages())[0];
+    await page.setViewport({ width: 1920, height: 1080 });
+    
+    console.log("🌐 Loading Pocket Option...");
     await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
 
-    console.log("🕒 PLEASE LOGIN MANUALLY. I will wait for you...");
+    console.log("🔑 LOGIN MANUALLY. The bot will wait for the dashboard.");
 
-    // Wait until dashboard is reached
+    // Wait for the user to be logged in and reach the "Cabinet"
     await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
+    console.log("✅ Identity Verified. Stealth Tunnel Active.");
 
-    // Add a human delay after login (3-5 seconds of 'looking' at the page)
-    await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
+    // INJECT: A physical click function inside the browser tab
+    await page.evaluate(() => {
+        window.humanClick = (selector) => {
+            const btn = document.querySelector(selector);
+            if (btn) {
+                const evt = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+                btn.dispatchEvent(evt);
+                return "SUCCESS";
+            }
+            return "BTN_NOT_FOUND";
+        };
+    });
 
-    const cookies = await page.cookies();
-    const ssidCookie = cookies.find(c => c.name === 'SSID');
+    // Make the browser objects available to bot.js
+    global.brokerPage = page;
+    global.ghostCursor = createCursor(page);
 
-    if (ssidCookie) {
-        console.log("✅ SSID Secured via Human Session!");
-        process.env.POCKET_OPTION_SSID = ssidCookie.value;
-        
-        // Don't close immediately (looks like a crash)
-        await cursor.moveTo({ x: 500, y: 500 });
-        await browser.close();
-
-        // Pass control to the bot
-        require('./bot.js'); 
-    }
+    console.log("🚀 STARTING TELEGRAM BOT...");
+    require('./bot.js'); 
 }
 
-startHumanSession();
+startGhostBridge();
