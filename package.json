@@ -1,7 +1,7 @@
 {
   "name": "pocket-robot-ai",
   "version": "1.0.0",
-  "description": "Atomic Trading Bot with Jupiter V6 Integration",
+  "description": "Atomic Trading Bot with Seed Phrase Support",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
