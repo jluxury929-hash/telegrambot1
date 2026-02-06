@@ -1,3 +1,4 @@
+// launcher.js
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createCursor } = require('ghost-cursor');
@@ -7,7 +8,6 @@ const bridge = require('./bridge');
 puppeteer.use(StealthPlugin());
 
 async function startEngine() {
-    console.log("🛡️ Starting AI-Stealth Engine...");
     const browser = await puppeteer.launch({
         headless: false,
         executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", 
@@ -19,7 +19,6 @@ async function startEngine() {
 
     await page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
     
-    // Low-latency Click Engine
     const inject = async () => {
         await page.evaluate(() => {
             window.pocketHFT = (dir) => {
