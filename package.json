@@ -1,8 +1,11 @@
 {
-  "name": "pocket-option-ai-sniper-v7",
+  "name": "ai-pocket-sniper-pro",
   "version": "7.0.0",
-  "description": "High-Frequency AI Betting Bot",
   "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "npx puppeteer browsers install chrome"
+  },
   "dependencies": {
     "puppeteer": "^22.0.0",
     "puppeteer-extra": "^3.3.6",
@@ -12,8 +15,5 @@
     "axios": "^1.6.0",
     "technicalindicators": "^3.1.0",
     "dotenv": "^16.3.0"
-  },
-  "scripts": {
-    "start": "xvfb-run --server-args='-screen 0 1280x1024x24' node server.js"
   }
 }
