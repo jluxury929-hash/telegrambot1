@@ -10,73 +10,91 @@ const adminId = 6588957206;
 
 async function log(msg) {
     console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
-    await bot.sendMessage(adminId, `🛰️ **STATION LOG:**\n${msg}`, { parse_mode: 'Markdown' }).catch(()=>{});
+    await bot.sendMessage(adminId, `🛰️ **AUTO-PILOT LOG:**\n${msg}`, { parse_mode: 'Markdown' }).catch(()=>{});
 }
 
-// --- 📈 PREDICTIVE ENGINE ---
-async function getPrediction(asset = 'BTCUSDT') {
+// --- 📈 QUANT ANALYSIS ENGINE ---
+async function analyzeMarket() {
     try {
-        const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=${asset}&interval=1m&limit=30`);
+        const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=50`);
         const closes = res.data.map(d => parseFloat(d[4]));
         
         const rsi = TA.rsi({ values: closes, period: 14 }).pop();
-        const sma = TA.sma({ values: closes, period: 10 }).pop();
+        const bb = TA.bollingerbands({ values: closes, period: 20, stdDev: 2 }).pop();
         const lastPrice = closes[closes.length - 1];
 
-        let decision = "NEUTRAL";
-        let reason = `RSI: ${rsi.toFixed(2)} | Price: ${lastPrice}`;
+        let score = 50; // Base probability
+        let signal = "NEUTRAL";
 
-        if (rsi < 35 && lastPrice > sma) decision = "HIGHER 📈";
-        else if (rsi > 65 && lastPrice < sma) decision = "LOWER 📉";
+        if (rsi < 30 && lastPrice <= bb.lower) { score = 88; signal = "UP"; }
+        if (rsi > 70 && lastPrice >= bb.upper) { score = 91; signal = "DOWN"; }
 
-        return { decision, reason };
-    } catch (e) { return { decision: "ERROR", reason: e.message }; }
+        return { signal, score, data: `RSI: ${rsi.toFixed(2)} | Price: ${lastPrice}` };
+    } catch (e) { return { signal: "ERROR", score: 0 }; }
 }
 
-// --- 📱 UI & COMMANDS ---
+// --- 📱 STRATEGY MENU ---
+const getMenu = () => ({
+    reply_markup: {
+        inline_keyboard: [
+            [{ text: "🌐 1. LAUNCH BROWSER", callback_data: "launch" }],
+            [{ text: bridge.isAuto ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "toggle_auto" }],
+            [{ text: "🧠 GET 90% SIGNAL", callback_data: "predict" }],
+            [{ text: "📈 MANUAL CALL", callback_data: "up" }, { text: "📉 MANUAL PUT", callback_data: "down" }]
+        ]
+    }
+});
+
+// --- 🤖 AUTO-PILOT LOOP ---
+async function autoPilotLoop() {
+    if (!bridge.isAuto) return;
+
+    const analysis = await analyzeMarket();
+    if (analysis.score >= 85) {
+        await log(`🔥 **High Probability Found (${analysis.score}%)**\nSignal: ${analysis.signal}\nExecuting trade...`);
+        try {
+            const { page, cursor } = bridge.get();
+            await cursor.move(analysis.signal === 'UP' ? '.btn-call' : '.btn-put');
+            await page.evaluate((s) => window.pocket.click(s.toLowerCase()), analysis.signal);
+            await log(`✅ **Auto-Trade Implemented.** Next scan in 2 mins.`);
+        } catch (e) { await log(`❌ Auto-Pilot Failed: ${e.message}`); }
+    }
+    setTimeout(autoPilotLoop, 120000); // Scan every 2 minutes
+}
+
 bot.onText(/\/start/, (msg) => {
     if (msg.from.id !== adminId) return;
-    const menu = {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "🌐 1. LAUNCH ENGINE", callback_data: "launch" }],
-                [{ text: "🧠 2. GET PREDICTION", callback_data: "predict" }],
-                [{ text: "📈 CALL", callback_data: "up" }, { text: "📉 PUT", callback_data: "down" }]
-            ]
-        }
-    };
-    bot.sendMessage(msg.chat.id, "💎 **AI PREDICTIVE TERMINAL**\nMode: `PocketOption Feature-Link`", menu);
+    bot.sendMessage(msg.chat.id, "💎 **PREDICTIVE STEALTH TERMINAL**\nStrategy: `Bollinger + RSI Mean Reversion`", getMenu());
 });
 
 bot.on('callback_query', async (q) => {
-    const { data, message } = q;
-
-    if (data === "launch") {
-        await log("🚀 **Launching Stealth Browser...**");
-        try {
-            const page = await startEngine();
-            await log("🔑 **WAITING FOR LOGIN...** Please authorize in Chrome.");
-            await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
-            await log("✅ **LINK ESTABLISHED.** Pocket Option features are now mapped.");
-        } catch (e) { await log(`❌ **CRITICAL ERROR:** ${e.message}`); }
+    if (q.data === "launch") {
+        await log("🚀 **Launching Engine...**");
+        const page = await startEngine();
+        await page.waitForFunction(() => window.location.href.includes('cabinet'), { timeout: 0 });
+        await log("✅ **BRIDGE ACTIVE.** Features mapped.");
     }
 
-    if (data === "predict") {
-        await log("📡 **Analyzing Market Volatility...**");
-        const p = await getPrediction();
-        const advice = p.decision === "NEUTRAL" ? "⚠️ **Wait for better entry.**" : `🔥 **STRATEGY:** Choose **${p.decision}**`;
-        await bot.sendMessage(adminId, `🎯 **PREDICTION ENGINE**\nAsset: \`BTC/USD\`\nDecision: \`${p.decision}\`\nData: \`${p.reason}\`\n\n${advice}`, { parse_mode: 'Markdown' });
+    if (q.data === "toggle_auto") {
+        bridge.isAuto = !bridge.isAuto;
+        if (bridge.isAuto) autoPilotLoop();
+        bot.editMessageText(`💎 **TERMINAL**\nAuto-Pilot: \`${bridge.isAuto ? 'ACTIVE' : 'OFF'}\``, 
+            { chat_id: q.message.chat.id, message_id: q.message.message_id, ...getMenu() });
+        await log(bridge.isAuto ? "🤖 **Auto-Pilot Started.** Searching for trades..." : "🛑 **Auto-Pilot Stopped.**");
     }
 
-    if (data === "up" || data === "down") {
+    if (q.data === "predict") {
+        const p = await analyzeMarket();
+        await bot.sendMessage(adminId, `🎯 **PREDICTION:** ${p.signal}\n🔥 **Probability:** ${p.score}%\n📊 **Data:** \`${p.data}\``);
+    }
+
+    if (q.data === "up" || q.data === "down") {
         try {
             const { page, cursor } = bridge.get();
-            const action = data === "up" ? "call" : "put";
-            await log(`🕹️ **Action:** Moving human-cursor to **${action.toUpperCase()}**...`);
-            await cursor.move(action === 'call' ? '.btn-call' : '.btn-put');
-            await page.evaluate((a) => window.pocketControl.click(a), action);
-            await log(`✅ **TRADE SENT.** Verify your screen for the active order.`);
-        } catch (e) { await log(`❌ **BRIDGE FAILED:** ${e.message}`); }
+            await cursor.move(q.data === 'up' ? '.btn-call' : '.btn-put');
+            await page.evaluate((d) => window.pocket.click(d), q.data);
+            await log(`✅ **Manual Bet Implemented.**`);
+        } catch (e) { await log(`❌ ${e.message}`); }
     }
     bot.answerCallbackQuery(q.id);
 });
