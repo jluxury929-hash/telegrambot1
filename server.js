@@ -16,7 +16,9 @@ const state = {
     adminId: 6588957206, // Your Telegram ID
     strategy: 'HFT-Sniper',
     isPredicting: false,
-    lastTradeTime: 0
+    lastTradeTime: 0,
+    tempEmail: '',   // Added for credential storage
+    tempPass: ''     // Added for credential storage
 };
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
@@ -59,7 +61,7 @@ async function bootEngine() {
             };
         });
 
-        await log("✅ **ENGINE ONLINE.**\nType `/login` to get your secure access link.");
+        await log("✅ **ENGINE ONLINE.**\n\n**Email Users:** Use `/email` & `/password`, then `/confirm`.\n**Google Users:** Use `/login` for the secure link.");
     } catch (e) {
         await log(`❌ **LAUNCH ERROR:** ${e.message}`);
     }
@@ -103,7 +105,33 @@ async function sniperLoop() {
     setTimeout(sniperLoop, 4000);
 }
 
-// --- 🔗 NEW LOGIN & VERIFY COMMANDS ---
+// --- 🔑 CREDENTIAL COMMANDS ---
+bot.onText(/\/email (.+)/, async (msg, match) => {
+    if (msg.from.id !== state.adminId) return;
+    state.tempEmail = match[1];
+    await log(`📧 Email set. (Delete your message for privacy)`);
+});
+
+bot.onText(/\/password (.+)/, async (msg, match) => {
+    if (msg.from.id !== state.adminId) return;
+    state.tempPass = match[1];
+    await log(`🔑 Password set.`);
+});
+
+bot.onText(/\/confirm/, async (msg) => {
+    if (msg.from.id !== state.adminId) return;
+    if (!state.tempEmail || !state.tempPass) return await log("❌ Please set `/email` and `/password` first.");
+    
+    await log("⌨️ **Submitting credentials to browser...**");
+    try {
+        await state.page.type('input[name="email"]', state.tempEmail, { delay: 100 });
+        await state.page.type('input[name="password"]', state.tempPass, { delay: 100 });
+        await state.page.click('button[type="submit"]');
+        await log("🚀 **Login Clicked.** Use `/snap` to see progress.");
+    } catch (e) { await log("❌ Form fields not found on page."); }
+});
+
+// --- 🔗 LOGIN & VERIFY COMMANDS (FOR GOOGLE/REMOTE) ---
 bot.onText(/\/login/, async (msg) => {
     if (msg.from.id !== state.adminId || !state.page) return;
     try {
@@ -111,7 +139,6 @@ bot.onText(/\/login/, async (msg) => {
         const pageData = response.data.find(p => p.url.includes('pocketoption.com'));
         if (!pageData) return await log("⚠️ Pocket Option page not found in browser.");
 
-        // For Railway/VPS, you must use your server IP here instead of 127.0.0.1
         const inspectorUrl = `https://chrome-devtools-frontend.appspot.com/serve_file/@ec8231d68303f27357417534c015b6d764789526/inspector.html?wss=127.0.0.1:9222/devtools/page/${pageData.id}`;
         
         await log(`🔗 **SECURE ACCESS LINK:**\n[Click here to log in](${inspectorUrl})\n\n1. Sign in with Google or Email.\n2. Once on the chart, type \`/verify\`.`);
@@ -123,7 +150,6 @@ bot.onText(/\/verify/, async (msg) => {
     const url = state.page.url();
     if (url.includes('cabinet')) {
         await log("🎊 **LOGIN SUCCESSFUL.** Session applied to bot.");
-        // Re-inject core trade logic to the new session
         await state.page.evaluate(() => {
             window.pocketExecute = (dir) => {
                 const btn = document.querySelector(dir === 'up' ? '.btn-call' : '.btn-put');
@@ -151,7 +177,7 @@ const mainMenu = {
 
 bot.onText(/\/start/, (msg) => {
     if (msg.from.id !== state.adminId) return;
-    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER v8.1**\nReady for sub-ms execution.", mainMenu);
+    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER v8.6**\nReady for sub-ms execution.", mainMenu);
 });
 
 bot.on('callback_query', async (q) => {
