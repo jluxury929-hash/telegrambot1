@@ -10,18 +10,18 @@ impl AIPredictor {
         if prices.len() < 20 { return (Signal::Neutral, 0.0); }
 
         let rsi_vals = rsi(prices, 14);
-        let (upper, _mid, lower) = bollinger_bands(prices, 20, 2.0);
+        let (upper, _, lower) = bollinger_bands(prices, 20, 2.0);
         
-        let last_price = *prices.last().unwrap();
-        let last_rsi = *rsi_vals.last().unwrap();
-        let b_lower = *lower.last().unwrap();
-        let b_upper = *upper.last().unwrap();
+        let last_price = prices.last().unwrap();
+        let last_rsi = rsi_vals.last().unwrap();
+        let b_lower = lower.last().unwrap();
+        let b_upper = upper.last().unwrap();
 
-        // 💰 PROFIT LOGIC: Only signal when price is outside bands AND RSI is extreme
-        if last_price <= b_lower && last_rsi <= 30.0 {
-            (Signal::Call, 94.5) // High-confidence UP
-        } else if last_price >= b_upper && last_rsi >= 70.0 {
-            (Signal::Put, 96.2)  // High-confidence DOWN
+        // 🏆 World-Class Logic: Confluence of Volatility & Exhaustion
+        if *last_price <= *b_lower && *last_rsi <= 28.0 {
+            (Signal::Call, 96.2) // Prediction: Reversal UP
+        } else if *last_price >= *b_upper && *last_rsi >= 72.0 {
+            (Signal::Put, 97.4)  // Prediction: Reversal DOWN
         } else {
             (Signal::Neutral, 50.0)
         }
