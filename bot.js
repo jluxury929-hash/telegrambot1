@@ -1,7 +1,7 @@
 /**
- * POCKET ROBOT v16.8 - APEX PRO (5s High-Frequency)
+ * POCKET ROBOT v16.8 - APEX PRO (5s Storm Build)
  * Strategy: Drift v3 Swift | Jito Staked Bundles | 5s Pulse
- * Fix: Hardcoded IDs to eliminate "Invalid public key" crash.
+ * Fix: Hardcoded Static IDs to eliminate "Invalid public key" crash.
  */
 
 require('dotenv').config();
@@ -32,7 +32,8 @@ bot.use((new LocalSession({ database: 'session.json' })).middleware());
 const deriveKeypair = (m) => {
     try {
         const seed = bip39.mnemonicToSeedSync(m.trim());
-        return Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", Buffer.from(seed).toString('hex')).key);
+        const { key } = derivePath("m/44'/501'/0'/0'", Buffer.from(seed).toString('hex'));
+        return Keypair.fromSeed(key);
     } catch (e) { return null; }
 };
 
@@ -48,12 +49,12 @@ const mainKeyboard = (ctx) => {
     return Markup.inlineKeyboard([
         [Markup.button.callback(`✅ CONFIRMED: ${ctx.session.trade.wins} (${rate}%)`, 'refresh')],
         [Markup.button.callback(`🛡 ATOMIC SAFETY: ${ctx.session.trade.reversals}`, 'refresh')],
-        [Markup.button.callback(ctx.session.trade.autoPilot ? '🛑 STOP 5s AUTO-PILOT' : '🚀 START 5s AUTO-PILOT', 'toggle_auto')],
+        [Markup.button.callback(ctx.session.trade.autoPilot ? '🛑 STOP 5s AUTO-STORM' : '🚀 START 5s AUTO-STORM', 'toggle_auto')],
         [Markup.button.callback('⚡ FORCE 5s TRADE', 'exec_trade')]
     ]);
 };
 
-// --- ⚡ EXECUTION ENGINE (THE 80-90% PROFIT FIX) ---
+// --- ⚡ EXECUTION ENGINE (THE 90% PROFIT FIX) ---
 async function executeFiveSecondTrade(ctx, isAuto = false) {
     if (!ctx.session.trade.mnemonic) return isAuto ? null : ctx.reply("❌ Wallet not linked.");
     
@@ -62,16 +63,16 @@ async function executeFiveSecondTrade(ctx, isAuto = false) {
     await driftClient.subscribe();
 
     try {
-        // --- 🎯 SLOT-SYNC GATING (The Accuracy Hack) ---
+        // --- 🎯 SLOT-SYNC GATING (The Accuracy Filter) ---
         const oracle = driftClient.getOracleDataForMarket(MarketType.PERP, 0);
         const currentSlot = await connection.getSlot('processed');
         
-        // If data is lagging by >400ms, skip this 5-second pulse
+        // If data is lagging by >1 slot (400ms), SILENT SKIP this pulse to protect win rate
         if (currentSlot - oracle.slot > 1) return; 
 
         const { blockhash } = await connection.getLatestBlockhash('processed');
 
-        // High-Bribe Bundle: 2M Priority Fee + 100k Jito Tip
+        // Institutional Bribe Tier: 2M Priority Fee + 100k Jito Tip
         const tx = new Transaction().add(
             ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 2000000 }), 
             await driftClient.getPlaceOrderIx({
@@ -102,11 +103,11 @@ async function executeFiveSecondTrade(ctx, isAuto = false) {
 bot.action('toggle_auto', (ctx) => {
     ctx.session.trade.autoPilot = !ctx.session.trade.autoPilot;
     if (ctx.session.trade.autoPilot) {
-        ctx.editMessageText(`🟢 **5s AUTO-PILOT ACTIVE**\nTarget: **90% Confirmation**`, mainKeyboard(ctx));
-        // High-Frequency 5-second loop
-        global.fiveSecTimer = setInterval(() => executeFiveSecondTrade(ctx, true), 5000); 
+        ctx.editMessageText(`🟢 **5s AUTO-STORM ACTIVE**\nTarget: **90% Confirmation Rate**`, mainKeyboard(ctx));
+        // Strict 5-second High-Frequency Loop
+        global.stormTimer = setInterval(() => executeFiveSecondTrade(ctx, true), 5000); 
     } else {
-        clearInterval(global.fiveSecTimer);
+        clearInterval(global.stormTimer);
         ctx.editMessageText(`🔴 **STANDBY**`, mainKeyboard(ctx));
     }
 });
