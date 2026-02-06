@@ -1,16 +1,17 @@
 pub struct RiskManager {
-    pub max_daily_loss: f64,
+    pub daily_loss_limit: f64,
     pub current_loss: f64,
-    pub win_rate: f32,
+    pub initial_balance: f64,
 }
 
 impl RiskManager {
-    pub fn can_trade(&self) -> bool {
-        self.current_loss < self.max_daily_loss
+    pub fn get_stake_amount(&self, current_balance: f64) -> f64 {
+        // Smart Stake: Risk exactly 2% of the account to ensure long-term profit
+        let stake = current_balance * 0.02;
+        stake.max(1.0).round() // Minimum $1.00 bet
     }
 
-    pub fn calculate_stake(&self, balance: f64) -> f64 {
-        // Fixed 2% risk per trade for "Real Profit" sustainability
-        (balance * 0.02).round()
+    pub fn can_trade(&self) -> bool {
+        self.current_loss < self.daily_loss_limit
     }
 }
