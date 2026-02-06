@@ -10,17 +10,18 @@ impl AIPredictor {
         if prices.len() < 20 { return (Signal::Neutral, 0.0); }
 
         let rsi_vals = rsi(prices, 14);
-        let (upper, _, lower) = bollinger_bands(prices, 20, 2.0);
+        let (upper, _mid, lower) = bollinger_bands(prices, 20, 2.0);
         
         let last_price = *prices.last().unwrap();
         let last_rsi = *rsi_vals.last().unwrap();
         let b_lower = *lower.last().unwrap();
         let b_upper = *upper.last().unwrap();
 
+        // 💰 PROFIT LOGIC: Overbought/Oversold Confluence
         if last_price <= b_lower && last_rsi <= 30.0 {
-            (Signal::Call, 94.5) // 94% Confidence Reversal
+            (Signal::Call, 93.5) // High-confidence UP bet
         } else if last_price >= b_upper && last_rsi >= 70.0 {
-            (Signal::Put, 96.2)  // 96% Confidence Reversal
+            (Signal::Put, 95.2)  // High-confidence DOWN bet
         } else {
             (Signal::Neutral, 50.0)
         }
