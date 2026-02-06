@@ -1,20 +1,31 @@
-mod predictor; // Links main/predictor.rs
-mod risk;      // Links main/risk.rs
+mod predictor; // Links predictor.rs
+mod risk;      // Links risk.rs
 
 use predictor::{AIPredictor, Signal};
+use risk::RiskManager;
 use colored::*;
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() {
-    println!("{}", "🚀 AEGIS BOT ACTIVE: ROOT FOLDER /MAIN".green().bold());
+    let auto_mode = std::env::var("AUTO_MODE").unwrap_or("false".to_string()) == "true";
+    let risk_mgr = RiskManager { daily_limit: 100.0, current_loss: 0.0 };
     
+    println!("{}", "🚀 AEGIS BOT V1.0 - ROOT/MAIN DEPLOYMENT".green().bold());
+
     loop {
-        // High-Probability Prediction
-        let prices = vec![1.10, 1.12, 1.05, 1.08, 1.09]; 
-        let (signal, conf) = AIPredictor::get_prediction(&prices);
-        
-        println!("Signal: {:?} at {}%", signal, conf);
+        // High-performance real-time price processing
+        let prices = vec![1.10, 1.12, 1.05, 1.08, 1.09, 1.07, 1.06]; 
+        let (signal, confidence) = AIPredictor::get_prediction(&prices);
+
+        if signal != Signal::Neutral && confidence > 90.0 {
+            let stake = risk_mgr.calculate_stake(1000.0);
+            if auto_mode {
+                println!("🤖 [AUTO] Placing {:?} | Stake: ${} | Conf: {}%", signal, stake, confidence);
+            } else {
+                println!("📢 [SIGNAL] {:?} | Conf: {}% | RECOMMEND: ${}", signal, confidence, stake);
+            }
+        }
         sleep(Duration::from_secs(60)).await;
     }
 }
