@@ -5,12 +5,7 @@ pub struct RiskManager {
 
 impl RiskManager {
     pub fn calculate_stake(&self, balance: f64) -> f64 {
-        // Professional "Fixed Fractional" betting: 2% risk per trade
-        let stake = balance * 0.02;
-        stake.max(1.0).round() // Minimum $1.00 per bet
-    }
-
-    pub fn is_safe(&self) -> bool {
-        self.current_loss < self.daily_limit
+        // Professional Standard: 2% risk per "bet"
+        (balance * 0.02).max(1.0).round()
     }
 }
