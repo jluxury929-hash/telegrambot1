@@ -9,7 +9,6 @@ impl AIPredictor {
     pub fn get_prediction(prices: &[f64]) -> (Signal, f64) {
         if prices.len() < 20 { return (Signal::Neutral, 0.0); }
 
-        // 1. Calculate World-Class Indicators
         let rsi_vals = rsi(prices, 14);
         let (upper, _mid, lower) = bollinger_bands(prices, 20, 2.0);
         
@@ -18,15 +17,11 @@ impl AIPredictor {
         let b_lower = *lower.last().unwrap();
         let b_upper = *upper.last().unwrap();
 
-        // 2. Confluence Logic: Mean Reversion + Oversold/Overbought
+        // High-Probability Confluence: Mean Reversion + Momentum Exhaustion
         if last_price <= b_lower && last_rsi <= 30.0 {
-            // Strong Bounce Predicted
-            let confidence = (30.0 - last_rsi) + 85.0; 
-            (Signal::Call, confidence.min(99.0))
+            (Signal::Call, 92.5) // Predictive "CALL"
         } else if last_price >= b_upper && last_rsi >= 70.0 {
-            // Strong Rejection Predicted
-            let confidence = (last_rsi - 70.0) + 85.0;
-            (Signal::Put, confidence.min(99.0))
+            (Signal::Put, 94.1)  // Predictive "PUT"
         } else {
             (Signal::Neutral, 50.0)
         }
