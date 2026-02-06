@@ -14,7 +14,7 @@ const state = {
     cursor: null,
     isAuto: false,
     adminId: 6588957206, 
-    strategy: 'HFT-Sniper-V9.5-Autonomous',
+    strategy: 'HFT-Sniper-V10-Final',
     isPredicting: false,
     lastTradeTime: 0,
     tempEmail: '',
@@ -29,23 +29,23 @@ async function log(m) {
     await bot.sendMessage(state.adminId, m, { parse_mode: 'Markdown' }).catch(()=>{});
 }
 
-// --- 🛰️ NAVIGATION WATCHER (Login Notifier & Auto-Starter) ---
+// --- 🛰️ NAVIGATION WATCHER (Auto-Start Logic) ---
 async function startWatchingNavigation() {
     if (!state.page) return;
     const checkInterval = setInterval(async () => {
         try {
             const url = state.page.url();
+            // Detect if we are in the cabinet/trading room
             if (url.includes('cabinet') && !state.loggedIn) {
                 state.loggedIn = true;
-                await log("🎊 **LOGIN SUCCESS!** Dashboard detected.");
+                await log("🎊 **DASHBOARD DETECTED!** Preparing engine...");
                 
-                // Re-inject core trading logic
                 await injectTradingLogic();
                 
-                // --- ⚡ AUTO-START LOGIC ---
+                // --- ⚡ AUTOMATIC START ---
                 state.isAuto = true; 
                 sniperLoop(); 
-                await log("🚀 **AUTO-PILOT ENGAGED.** The sniper is now live and scanning for signals.");
+                await log("🚀 **AUTO-PILOT ENGAGED.** Trading has started automatically.");
                 
                 clearInterval(checkInterval);
             }
@@ -91,72 +91,64 @@ async function bootEngine() {
         await injectTradingLogic();
         startWatchingNavigation();
 
-        await log("✅ **ENGINE ONLINE.**\n\n1. `/email` & `/password` \n2. `/confirm` (Type info)\n3. `/sign_in` (Humanized Submit)");
+        await log("✅ **ENGINE ONLINE.**\n\nCommands:\n- `/email` & `/password` \n- `/confirm` (Type info)\n- `/sign_in` (Precision Login)\n- `/refresh` (Reset Page)");
     } catch (e) {
         await log(`❌ **LAUNCH ERROR:** ${e.message}`);
     }
 }
 
-// --- 🖱️ HUMANIZED SIGN-IN (NON-LINEAR + JITTER) ---
+// --- 🔄 REFRESH COMMAND ---
+bot.onText(/\/refresh/, async (msg) => {
+    if (msg.from.id !== state.adminId || !state.page) return;
+    await log("🔄 **Refreshing page and re-injecting logic...**");
+    try {
+        await state.page.reload({ waitUntil: 'networkidle2' });
+        await injectTradingLogic();
+        await log("✅ **Refresh complete.** Current URL: " + state.page.url());
+    } catch (e) {
+        await log("❌ Refresh failed: " + e.message);
+    }
+});
+
+// --- 🖱️ HUMANIZED SIGN-IN (FIXED FOR DASHBOARD REDIRECT) ---
 bot.onText(/\/sign_in/, async (msg) => {
     if (msg.from.id !== state.adminId || !state.page) return;
-    await log("🖱️ **Initiating Humanized Sign-In (No Teleport)...**");
+    await log("🖱️ **Initiating Humanized Sign-In...**");
     try {
         const submitSelector = 'button[type="submit"]';
-        const button = await state.page.waitForSelector(submitSelector, { visible: true, timeout: 5000 });
+        await state.page.waitForSelector(submitSelector, { visible: true, timeout: 5000 });
         
-        if (button) {
-            const box = await button.boundingBox();
-            
-            // 1. Randomize targets within the button bounds (avoiding absolute center)
-            const targetX = box.x + box.width / 2 + (Math.random() * 10 - 5);
-            const targetY = box.y + box.height / 2 + (Math.random() * 6 - 3);
+        // Move to button
+        await state.cursor.click(submitSelector, {
+            hesitate: Math.random() * 400 + 200,
+            waitForClick: Math.random() * 100 + 50
+        });
 
-            // 2. MOVE: Non-linear curved path
-            await state.cursor.moveTo({ x: targetX, y: targetY });
+        await log("🚀 **Sign-In clicked.** Waiting for redirect to finish...");
+        
+        // Wait for the URL change or the dashboard to load
+        await state.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
+            log("⚠️ Navigation taking longer than usual. Check `/snap`.");
+        });
 
-            // 3. HOVER & JITTER: Simulate human eye-checking before click
-            await new Promise(r => setTimeout(r, Math.random() * 400 + 200));
-            await state.page.mouse.move(targetX + 1, targetY + 1, { steps: 5 });
-
-            // 4. CLICK: Randomized duration and micro-drag
-            await state.page.mouse.down();
-            await new Promise(r => setTimeout(r, Math.random() * 80 + 40));
-            await state.page.mouse.up();
-            
-            await log("🚀 **Sign-In clicked with Entropy.** Watching for redirect...");
-        }
     } catch (e) {
         await log(`❌ **Sign-In Error:** ${e.message}`);
     }
 });
 
-// --- 🤖 THE CAPTCHA SNIPER ---
+// --- 🤖 CAPTCHA CLICKER ---
 bot.onText(/\/i_am_not_a_robot/, async (msg) => {
     if (msg.from.id !== state.adminId || !state.page) return;
-    await log("🕵️ **Locating Captcha Checkbox...**");
     try {
-        const captchaFrame = state.page.frames().find(f => 
-            f.url().includes('api2/anchor') || f.url().includes('hcaptcha.com/box')
-        );
-
-        if (!captchaFrame) return await log("⚠️ **Captcha not found.**");
-
-        const checkboxSelector = '.recaptcha-checkbox-border, #checkbox';
-        const checkboxHandle = await captchaFrame.waitForSelector(checkboxSelector, { timeout: 5000 });
-
-        if (checkboxHandle) {
-            const box = await checkboxHandle.boundingBox();
-            const targetX = box.x + (box.width / 2) + (Math.random() * 4 - 2);
-            const targetY = box.y + (box.height / 2) + (Math.random() * 4 - 2);
-
-            await state.cursor.moveTo({ x: targetX, y: targetY });
-            await state.page.mouse.down();
-            await new Promise(r => setTimeout(r, Math.random() * 100 + 50));
-            await state.page.mouse.up();
+        const captchaFrame = state.page.frames().find(f => f.url().includes('api2/anchor') || f.url().includes('hcaptcha'));
+        if (captchaFrame) {
+            const checkbox = await captchaFrame.waitForSelector('.recaptcha-checkbox-border, #checkbox');
+            const box = await checkbox.boundingBox();
+            await state.cursor.moveTo({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+            await checkbox.click();
             await log("✅ **Checkbox clicked.**");
         }
-    } catch (e) { await log(`❌ **Precision Click Failed.**`); }
+    } catch (e) { await log(`❌ Captcha Click Failed.`); }
 });
 
 // --- 🔑 CREDENTIALS ---
@@ -165,17 +157,12 @@ bot.onText(/\/password (.+)/, (msg, m) => { state.tempPass = m[1]; log("🔑 Pas
 
 bot.onText(/\/confirm/, async (msg) => {
     if (msg.from.id !== state.adminId || !state.page) return;
-    if (!state.tempEmail || !state.tempPass) return log("❌ Set info first.");
-    
-    await log("⌨️ **Typing with human delays...**");
-    try {
-        await state.page.type('input[name="email"]', state.tempEmail, { delay: 150 });
-        await state.page.type('input[name="password"]', state.tempPass, { delay: 180 });
-        await log("🚀 **Typed.** Use `/sign_in` or solve captcha.");
-    } catch (e) { await log("❌ Fields not found."); }
+    await state.page.type('input[name="email"]', state.tempEmail, { delay: 150 });
+    await state.page.type('input[name="password"]', state.tempPass, { delay: 180 });
+    await log("🚀 **Typed.** Use `/sign_in`.");
 });
 
-// --- 📈 ANALYSIS ENGINE ---
+// --- 📈 ANALYSIS & AUTO-PILOT ---
 async function analyze() {
     try {
         const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=40`);
@@ -188,56 +175,45 @@ async function analyze() {
     } catch (e) { return { signal: "WAIT" }; }
 }
 
-// --- 🤖 SNIPER AUTO-PILOT ---
 async function sniperLoop() {
     if (!state.isAuto || !state.page || state.isPredicting) return;
     const intel = await analyze();
-    
     if (intel.signal !== "NEUTRAL" && (Date.now() - state.lastTradeTime > 60000)) {
         state.isPredicting = true;
-        await log(`🔮 **PREDICTION:** ${intel.signal} (RSI: ${intel.rsi})`);
         try {
             await state.cursor.move(intel.signal === "UP" ? ".btn-call" : ".btn-put");
             await state.page.evaluate((d) => window.pocketExecute(d.toLowerCase()), intel.signal);
             state.lastTradeTime = Date.now();
-            await log("💰 **TRADE PLACED.**");
-        } catch (e) { console.error(e); } finally { state.isPredicting = false; }
+            await log(`💰 **TRADE:** ${intel.signal}`);
+        } catch (e) {} finally { state.isPredicting = false; }
     }
     setTimeout(sniperLoop, 4000); 
 }
 
-// --- 📱 TELEGRAM INTERFACE ---
-const mainMenu = {
-    reply_markup: {
-        inline_keyboard: [
-            [{ text: "🌐 BOOT ENGINE", callback_data: "boot" }],
-            [{ text: state.isAuto ? "🛑 STOP AUTO" : "⚡ START SNIPER", callback_data: "auto" }],
-            [{ text: "📸 SNAP", callback_data: "snap" }, { text: "📊 SCAN", callback_data: "scan" }]
-        ]
-    }
-};
-
+// --- 📱 TELEGRAM UI ---
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER v9.5**\nStatus: `Awaiting Login`", mainMenu);
+    bot.sendMessage(msg.chat.id, "💎 **PRO SNIPER FINAL**", {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "🌐 BOOT ENGINE", callback_data: "boot" }],
+                [{ text: "🔄 REFRESH", callback_data: "refresh" }],
+                [{ text: "📸 SNAP", callback_data: "snap" }]
+            ]
+        }
+    });
 });
 
 bot.on('callback_query', async (q) => {
-    const data = q.data;
-    if (data === "boot") await bootEngine();
-    if (data === "auto") {
-        state.isAuto = !state.isAuto;
-        if (state.isAuto) sniperLoop();
-        await log(state.isAuto ? "⚡ **Auto-Pilot: ON**" : "🛑 **Auto-Pilot: OFF**");
+    if (q.data === "boot") await bootEngine();
+    if (q.data === "refresh") {
+        await state.page.reload();
+        await log("🔄 Refreshed.");
     }
-    if (data === "snap") {
+    if (q.data === "snap") {
         const pic = await state.page.screenshot();
         bot.sendPhoto(state.adminId, pic);
-    }
-    if (data === "scan") {
-        const a = await analyze();
-        await log(`📡 **SCAN:** ${a.signal} | RSI: ${a.rsi}`);
     }
     bot.answerCallbackQuery(q.id);
 });
 
-console.log("🚀 Autonomous Sniper v9.5 Active.");
+console.log("🚀 Server running. Auto-Dashboard Start Active.");
