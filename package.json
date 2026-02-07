@@ -1,16 +1,14 @@
 {
   "name": "pocket-option-ai-bot",
-  "version": "1.0.0",
-  "description": "AI-driven human-mimicry bot for Pocket Option",
+  "version": "1.1.0",
+  "description": "AI-driven human-mimicry bot with Telegram live-feed",
   "main": "bot.py",
   "scripts": {
-    "setup": "pip install -r requirements.txt && playwright install chromium",
-    "start": "python bot.py",
+    "setup": "pip3 install -r requirements.txt && playwright install chromium",
+    "start": "python3 bot.py || python bot.py",
     "debug-chrome": "start chrome --remote-debugging-port=9222 --user-data-dir='C:\\sel_profile'"
   },
   "dependencies": {
     "playwright": "^1.40.0"
-  },
-  "author": "Gemini-AI-Collab",
-  "license": "MIT"
+  }
 }
