@@ -1,14 +1,11 @@
 {
   "name": "pocket-option-ai-bot",
-  "version": "1.1.0",
-  "description": "AI-driven human-mimicry bot with Telegram live-feed",
+  "version": "1.2.0",
+  "description": "AI-driven human-mimicry bot with auto-install and live Telegram feed",
   "main": "bot.py",
   "scripts": {
-    "setup": "pip3 install -r requirements.txt && playwright install chromium",
+    "setup": "((sudo apt-get update && sudo apt-get install -y python3 python3-pip) || echo 'Python install skipped (not on Linux)') && pip3 install -r requirements.txt && playwright install chromium",
     "start": "python3 bot.py || python bot.py",
     "debug-chrome": "start chrome --remote-debugging-port=9222 --user-data-dir='C:\\sel_profile'"
-  },
-  "dependencies": {
-    "playwright": "^1.40.0"
   }
 }
