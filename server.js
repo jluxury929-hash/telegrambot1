@@ -18,7 +18,7 @@ const state = {
     strategy: 'AI-EagleEye-V17-Final',
     isPredicting: false,
     lastTradeTime: 0,
-    tempEmail: process.env.EMAIL || '',
+    tempEmail: process.env.EMAIL || '', // Fallback to .env if available
     tempPass: process.env.PASS || '',
     loggedIn: false
 };
@@ -108,7 +108,7 @@ async function injectTradingLogic() {
     });
 }
 
-// --- 🛰️ NAVIGATION WATCHER (Auto-Start Logic) ---
+// --- 🛰️ NAVIGATION WATCHER (Auto-Start) ---
 async function startWatchingNavigation() {
     if (!state.page) return;
     const checkInterval = setInterval(async () => {
@@ -116,21 +116,20 @@ async function startWatchingNavigation() {
             const url = state.page.url();
             if (url.includes('cabinet') && !state.loggedIn) {
                 state.loggedIn = true;
-                await log("🎊 **DASHBOARD DETECTED!** AI Vision is now mapping the UI...");
+                await log("🎊 **DASHBOARD DETECTED!** AI Pilot is taking control...");
                 await injectTradingLogic();
                 state.isAuto = true; 
                 sniperLoop(); 
-                await log("🚀 **AUTO-PILOT ENGAGED.** Good luck!");
                 clearInterval(checkInterval);
             }
         } catch (e) {}
     }, 2000);
 }
 
-// --- ⚙️ BROWSER ENGINE (Railway Stability) ---
+// --- ⚙️ BROWSER ENGINE ---
 async function bootEngine(queryId) {
     if (queryId) bot.answerCallbackQuery(queryId).catch(() => {});
-    await log("🛡️ **Launching Eagle-Eye Stealth Engine...**");
+    await log("🛡️ **Launching AI Stealth Engine...**");
     try {
         const browser = await puppeteer.launch({
             headless: true,
@@ -147,14 +146,40 @@ async function bootEngine(queryId) {
         await injectTradingLogic();
         startWatchingNavigation();
 
-        await log("✅ **ENGINE ONLINE.**\n\n- `/confirm` (Smart Type)\n- `/i_am_not_a_robot` (Visual Map)\n- `/sign_in` (Eagle Eye)");
+        await log("✅ **ENGINE ONLINE.** Set credentials then use `/confirm`.");
     } catch (e) { await log(`❌ **LAUNCH ERROR:** ${e.message}`); }
 }
 
-// --- 🤖 AI VISION CAPTCHA ---
+// --- 🔑 CREDENTIAL COMMANDS ---
+bot.onText(/\/email (.+)/, (msg, match) => {
+    if (msg.from.id !== state.adminId) return;
+    state.tempEmail = match[1].trim();
+    log(`📧 **Email Received:** \`${state.tempEmail}\``);
+});
+
+bot.onText(/\/password (.+)/, (msg, match) => {
+    if (msg.from.id !== state.adminId) return;
+    state.tempPass = match[1].trim();
+    log(`🔑 **Password Received:** \`********\``);
+});
+
+// --- 🤖 AI INTERACTION COMMANDS ---
+bot.onText(/\/confirm/, async (msg) => {
+    if (msg.from.id !== state.adminId || !state.page) return;
+    if (!state.tempEmail || !state.tempPass) return log("⚠️ Please set `/email` and `/password` first!");
+    
+    await log("⌨️ **AI: Smart-Typing credentials...**");
+    try {
+        await HumanAI.smartType(state.page, 'input[name="email"]', state.tempEmail);
+        await HumanAI.hesitate(400, 900);
+        await HumanAI.smartType(state.page, 'input[name="password"]', state.tempPass);
+        await log("🚀 **Credentials entered.** Solve Captcha or use `/sign_in`.");
+    } catch (e) { await log("❌ Failed to type. Are you on the login page?"); }
+});
+
 bot.onText(/\/i_am_not_a_robot/, async (msg) => {
     if (!state.page) return;
-    await log("🕵️ **Vision Scanning for Captcha...**");
+    await log("🕵️ **Vision Mapping Captcha...**");
     try {
         const frames = state.page.frames();
         const captchaFrame = frames.find(f => f.url().includes('api2/anchor') || f.url().includes('hcaptcha.com/box'));
@@ -171,30 +196,15 @@ bot.onText(/\/i_am_not_a_robot/, async (msg) => {
         await state.page.mouse.down();
         await new Promise(r => setTimeout(r, 120));
         await state.page.mouse.up();
-        await log("✅ **Captcha Toggled via Visual Mapping.**");
+        await log("✅ **Captcha Toggled.**");
     } catch (e) { await log("❌ Vision failed to find Captcha."); }
 });
 
-// --- 🔑 LOGIN COMMANDS ---
-bot.onText(/\/confirm/, async () => {
-    if (!state.page) return;
-    await log("⌨️ **Smart-Typing credentials...**");
-    await HumanAI.smartType(state.page, 'input[name="email"]', state.tempEmail);
-    await HumanAI.hesitate(400, 900);
-    await HumanAI.smartType(state.page, 'input[name="password"]', state.tempPass);
-    await log("🚀 Typed.");
-});
-
-bot.onText(/\/sign_in/, async () => {
+bot.onText(/\/sign_in/, async (msg) => {
     if (!state.page) return;
     await log("🖱️ **Eagle-Eye locating Sign-In...**");
     const success = await HumanAI.smartVisionClick(state.page, state.cursor, "sign in");
-    if (success) {
-        await log("🚀 **Login Clicked.** Waiting for redirect...");
-    } else {
-        await log("⚠️ Vision search failed, trying fallback click...");
-        await state.page.click('button[type="submit"]').catch(()=>{});
-    }
+    if (!success) await state.page.click('button[type="submit"]').catch(()=>{});
 });
 
 // --- 📈 SNIPER LOOP ---
@@ -210,14 +220,14 @@ async function sniperLoop() {
             const traded = await HumanAI.smartVisionClick(state.page, state.cursor, dir);
             if (traded) {
                 state.lastTradeTime = Date.now();
-                await log(`💰 **AI SNIPE:** ${dir} | RSI: ${rsi.toFixed(1)}`);
+                await log(`💰 **AI SNIPE:** ${dir} | RSI: ${rsi}`);
             }
         }
     } catch (e) {}
     setTimeout(sniperLoop, 4000); 
 }
 
-// --- 📱 TELEGRAM INTERFACE ---
+// --- 📱 TELEGRAM UI ---
 bot.on('callback_query', async (q) => {
     if (q.data === "boot") { await bootEngine(q.id); return; }
     bot.answerCallbackQuery(q.id).catch(() => {});
@@ -228,9 +238,7 @@ bot.on('callback_query', async (q) => {
 });
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💎 **PRO AI SNIPER V17: EAGLE-EYE**", {
+    bot.sendMessage(msg.chat.id, "💎 **PRO AI SNIPER V17**", {
         reply_markup: { inline_keyboard: [[{ text: "🌐 BOOT ENGINE", callback_data: "boot" }], [{ text: "📸 SNAP", callback_data: "snap" }]] }
     });
 });
-
-console.log("🚀 Eagle-Eye Server running. Redundancy fixed.");
