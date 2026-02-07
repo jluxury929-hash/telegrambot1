@@ -14,7 +14,7 @@ const state = {
     cursor: null,
     isAuto: false,
     adminId: 6588957206, 
-    strategy: 'AI-EagleEye-V21-ForceClick',
+    strategy: 'AI-EagleEye-V21-ForceClick-Fixed',
     lastTradeTime: 0,
     loggedIn: false,
     tempEmail: process.env.EMAIL || '',
@@ -31,7 +31,7 @@ async function log(m) {
 // --- ⚙️ BROWSER ENGINE ---
 async function bootEngine(queryId) {
     if (queryId) bot.answerCallbackQuery(queryId).catch(() => {});
-    await log("🛡️ **Launching Engine V21 (Force-Click Edition)...**");
+    await log("🛡️ **Launching Engine V21.1 (Click-Fix Edition)...**");
     
     try {
         const browser = await puppeteer.launch({
@@ -59,57 +59,73 @@ async function bootEngine(queryId) {
     } catch (e) { await log(`❌ **LAUNCH ERROR:** ${e.message}`); }
 }
 
-// --- 🖱️ THE FINAL SIGN-IN FIX (Force-Dispatch) ---
+// --- 🖱️ THE FINAL SIGN-IN FIX (Atomic Click) ---
 bot.onText(/\/sign_in/, async (msg) => {
     if (!state.page) return;
-    await log("🖱️ **AI: Attempting Deep-Force Sign-In...**");
+    await log("🖱️ **AI: Attempting Atomic Sign-In...**");
     
     try {
-        // 1. Release all virtual mouse buttons and clear focus
+        // Clear any stuck mouse state
         await state.page.mouse.up();
-        await state.page.evaluate(() => window.getSelection().removeAllRanges());
-
-        // 2. Identify the button using multiple attributes
-        const submitSelector = 'button[type="submit"], .btn-primary[type="submit"], button:contains("Sign In")';
         
-        // 3. Force-scroll and Focus
+        const submitSelector = 'button[type="submit"]';
+        const btn = await state.page.waitForSelector(submitSelector, { visible: true, timeout: 5000 });
+        const box = await btn.boundingBox();
+
+        if (box) {
+            // Humanize coordinates
+            const x = box.x + box.width / 2;
+            const y = box.y + box.height / 2;
+
+            // Move cursor humanly
+            await state.cursor.moveTo({ x, y });
+            
+            // Execute physical click with manual down/up to ensure 'left' is pressed
+            await state.page.mouse.move(x, y);
+            await state.page.mouse.down({ button: 'left' });
+            await new Promise(r => setTimeout(r, 150)); // Hold for 150ms
+            await state.page.mouse.up({ button: 'left' });
+
+            await log("🚀 **Atomic Click Triggered.**");
+        }
+    } catch (e) {
+        await log("⚠️ Click failed. Falling back to **Deep-JS Event Dispatch**...");
         await state.page.evaluate(() => {
             const btn = document.querySelector('button[type="submit"]') || 
                         Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Sign In'));
-            if (btn) {
-                btn.scrollIntoView();
-                btn.focus();
-            }
+            if (btn) btn.click();
         });
-
-        // 4. THE ULTIMATE FIX: Dispatch events directly to the button
-        const success = await state.page.evaluate(() => {
-            const btn = document.querySelector('button[type="submit"]') || 
-                        Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Sign In'));
-            if (btn) {
-                const events = ['mousedown', 'mouseup', 'click'];
-                events.forEach(name => {
-                    const ev = new MouseEvent(name, { bubbles: true, cancelable: true, view: window });
-                    btn.dispatchEvent(ev);
-                });
-                return true;
-            }
-            return false;
-        });
-
-        if (success) {
-            await log("🚀 **Deep-Click Dispatched.** If you see a blue highlight, the AI is bypassing the overlay.");
-        } else {
-            throw new Error("Button not found in DOM");
-        }
-
-    } catch (e) {
-        await log(`❌ **Force-Click Failed:** ${e.message}. Trying standard click...`);
-        await state.page.click('button[type="submit"]').catch(() => {});
     }
 });
 
-// --- 🤖 CAPTCHA, CREDENTIALS & SNIPER ---
+// --- 🤖 THE "I AM NOT A ROBOT" FIX (Frame-Bound) ---
+bot.onText(/\/i_am_not_a_robot/, async () => {
+    if (!state.page) return;
+    await log("🕵️ **AI: Targeting Captcha Checkbox...**");
+    try {
+        const frames = state.page.frames();
+        const f = frames.find(f => f.url().includes('api2/anchor') || f.url().includes('hcaptcha'));
+        const box = await f.waitForSelector('.recaptcha-checkbox-border, #checkbox');
+        const b = await box.boundingBox();
+        const fr = await f.frameElement();
+        const fb = await fr.boundingBox();
+
+        const x = fb.x + b.x + b.width / 2;
+        const y = fb.y + b.y + b.height / 2;
+
+        await state.page.mouse.up(); // Release stuck clicks
+        await state.cursor.moveTo({ x, y });
+        
+        // Manual left-click injection to bypass 'left not pressed' errors
+        await state.page.mouse.down({ button: 'left' });
+        await new Promise(r => setTimeout(r, 100));
+        await state.page.mouse.up({ button: 'left' });
+
+        await log("✅ **Captcha Clicked successfully.**");
+    } catch (e) { await log("❌ Captcha failed: " + e.message); }
+});
+
+// --- 📈 SNIPER LOOP & OTHERS ---
 bot.onText(/\/email (.+)/, (msg, m) => { state.tempEmail = m[1].trim(); log("📧 Email set."); });
 bot.onText(/\/password (.+)/, (msg, m) => { state.tempPass = m[1].trim(); log("🔑 Pass set."); });
 
@@ -121,21 +137,6 @@ bot.onText(/\/confirm/, async () => {
         await state.page.type('input[name="password"]', state.tempPass, { delay: 100 });
         await log("✅ Typed.");
     } catch (e) { await log("❌ Type failed."); }
-});
-
-bot.onText(/\/i_am_not_a_robot/, async () => {
-    if (!state.page) return;
-    try {
-        const frames = state.page.frames();
-        const f = frames.find(f => f.url().includes('api2/anchor') || f.url().includes('hcaptcha'));
-        const box = await f.waitForSelector('.recaptcha-checkbox-border, #checkbox');
-        const b = await box.boundingBox();
-        const fr = await f.frameElement();
-        const fb = await fr.boundingBox();
-        await state.page.mouse.up();
-        await state.cursor.click({ x: fb.x + b.x + b.width/2, y: fb.y + b.y + b.height/2 });
-        await log("✅ Captcha clicked.");
-    } catch (e) { await log("❌ Captcha failed."); }
 });
 
 async function sniperLoop() {
@@ -166,7 +167,7 @@ bot.on('callback_query', async (q) => {
 });
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💎 **PRO AI SNIPER V21**", {
+    bot.sendMessage(msg.chat.id, "💎 **PRO AI SNIPER V21.1**", {
         reply_markup: { inline_keyboard: [[{ text: "🌐 BOOT ENGINE", callback_data: "boot" }], [{ text: "📸 SNAP", callback_data: "snap" }]] }
     });
 });
