@@ -4,7 +4,8 @@
   "description": "AI Trading Bot for Pocket Option",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "npx playwright install --with-deps chromium"
   },
   "dependencies": {
     "playwright": "^1.40.0",
