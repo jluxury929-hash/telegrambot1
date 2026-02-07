@@ -1,12 +1,13 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
 const axios = require('axios');
+const { exec } = require('child_process');
 
 // --- SETTINGS ---
 const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } = process.env;
 const RSI_PERIOD = 14;
-const OVERBOUGHT = 70; // Sell (PUT) signal
-const OVERSOLD = 30;   // Buy (CALL) signal
+const OVERBOUGHT = 70; 
+const OVERSOLD = 30;   
 
 class WorldsBestAnalysisBot {
     constructor(page) {
@@ -24,10 +25,9 @@ class WorldsBestAnalysisBot {
                 text: msg,
                 parse_mode: 'Markdown'
             });
-        } catch (e) { /* silent */ }
+        } catch (e) { }
     }
 
-    // --- QUANTITATIVE ENGINE ---
     calculateRSI(prices) {
         if (prices.length <= RSI_PERIOD) return 50;
         let gains = 0, losses = 0;
@@ -41,25 +41,20 @@ class WorldsBestAnalysisBot {
     }
 
     async getLivePrice() {
-        // Scrapes the current asset price from the Pocket Option UI
         const priceStr = await this.page.locator('.current-price').innerText().catch(() => "0");
         return parseFloat(priceStr.replace(/[^0-9.]/g, ''));
     }
 
-    // --- HUMAN MIMICRY ENGINE ---
     async humanMoveAndClick(selector, action) {
         const box = await this.page.locator(selector).boundingBox();
         if (box) {
             this.broadcast(`🎯 **Analysis Confirmed:** Executing ${action}.`);
             const targetX = box.x + box.width * (0.3 + Math.random() * 0.4);
             const targetY = box.y + box.height * (0.3 + Math.random() * 0.4);
-            
-            // Shaky, organic movement
-            await this.page.mouse.move(targetX, targetY, { steps: Math.floor(Math.random() * 20) + 30 });
-            await this.page.waitForTimeout(Math.random() * 1000 + 400);
+            await this.page.mouse.move(targetX, targetY, { steps: 35 });
+            await this.page.waitForTimeout(600);
             await this.page.mouse.click(targetX, targetY);
-            
-            await this.page.waitForTimeout(62000); // Wait for trade to clear
+            await this.page.waitForTimeout(62000); 
         }
     }
 
@@ -69,53 +64,57 @@ class WorldsBestAnalysisBot {
             this.priceHistory.push(price);
             if (this.priceHistory.length > 50) this.priceHistory.shift();
         }
-
         const rsi = this.calculateRSI(this.priceHistory);
         console.log(`[DATA]: Price: ${price} | RSI: ${rsi.toFixed(2)}`);
 
-        // CORE STRATEGY LOGIC
         if (rsi >= OVERBOUGHT && !this.isTrading) {
             this.isTrading = true;
-            this.broadcast(`📉 **PUT SIGNAL:** RSI is at ${rsi.toFixed(2)} (Overbought). Market reversal expected.`);
             await this.humanMoveAndClick('.btn-put', 'PUT');
             this.isTrading = false;
-        } 
-        else if (rsi <= OVERSOLD && !this.isTrading) {
+        } else if (rsi <= OVERSOLD && !this.isTrading) {
             this.isTrading = true;
-            this.broadcast(`📈 **CALL SIGNAL:** RSI is at ${rsi.toFixed(2)} (Oversold). Market bounce expected.`);
             await this.humanMoveAndClick('.btn-call', 'CALL');
             this.isTrading = false;
         }
     }
 
     async start() {
-        this.broadcast("🧠 **Quantitative AI Engine Online.** Analyzing real-time price action...");
-        
+        this.broadcast("🧠 **Quantitative AI Engine Online.** Analyzing live...");
         while (true) {
             await this.analyze();
-            
-            // Randomly use a "Feature" to maintain human profile
-            if (Math.random() > 0.9) {
-                await this.page.mouse.wheel(0, (Math.random() - 0.5) * 300);
-                await this.page.waitForTimeout(2000);
-            }
-
-            await this.page.waitForTimeout(2000); // Check every 2 seconds
+            await this.page.waitForTimeout(2000);
         }
     }
 }
 
-// MAIN EXECUTION
+// --- AUTO-LAUNCH LOGIC ---
 (async () => {
+    console.log("🚀 Launching Chrome in Debug Mode...");
+    
+    // Commands for MacOS
+    const chromeCmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile"`;
+    
+    exec(chromeCmd, (err) => {
+        if (err) console.error("❌ Failed to launch Chrome:", err);
+    });
+
+    // Wait for Chrome to warm up
+    console.log("⏳ Waiting for Chrome to initialize...");
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
         const context = browser.contexts()[0];
-        const pages = context.pages();
-        const page = pages.find(p => p.url().includes('pocketoption')) || pages[0];
+        const page = context.pages()[0];
+        
+        // Auto-navigate to the trade room if not already there
+        if (!page.url().includes('pocketoption.com')) {
+            await page.goto('https://pocketoption.com/en/cabinet/');
+        }
 
         const bot = new WorldsBestAnalysisBot(page);
         await bot.start();
     } catch (e) {
-        console.error("❌ CONNECTION FAILED: Open Chrome on Port 9222 first!");
+        console.error("❌ CONNECTION FAILED: Try closing all Chrome instances first.");
     }
 })();
