@@ -5,6 +5,7 @@ const { createCursor } = require('ghost-cursor');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const TA = require('technicalindicators');
+const path = require('path');
 
 puppeteer.use(StealthPlugin());
 
@@ -13,11 +14,11 @@ const state = {
     cursor: null,
     isAuto: false,
     adminId: 6588957206, 
-    strategy: 'AI-EagleEye-V18-AntiDrag',
+    strategy: 'AI-EagleEye-V20-CaptchaSecure',
     lastTradeTime: 0,
+    loggedIn: false,
     tempEmail: process.env.EMAIL || '',
-    tempPass: process.env.PASS || '',
-    loggedIn: false
+    tempPass: process.env.PASS || ''
 };
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
@@ -27,142 +28,105 @@ async function log(m) {
     await bot.sendMessage(state.adminId, m, { parse_mode: 'Markdown' }).catch(()=>{});
 }
 
-// --- 👁️ AI VISION LAYER (Anti-Highlight Edition) ---
-const VisionAI = {
-    locateElement: async (page, targetLabel) => {
-        return await page.evaluate((label) => {
-            const elements = Array.from(document.querySelectorAll('button, input, a, div[role="button"], span, .btn'));
-            const target = elements.find(el => 
-                el.innerText?.toLowerCase().includes(label) || 
-                el.placeholder?.toLowerCase().includes(label) ||
-                el.ariaLabel?.toLowerCase().includes(label) ||
-                el.className?.toLowerCase().includes(label)
-            );
-            if (target) {
-                const rect = target.getBoundingClientRect();
-                return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-            }
-            return null;
-        }, targetLabel.toLowerCase());
-    }
-};
-
-const HumanAI = {
-    hesitate: async (min = 300, max = 800) => {
-        const delay = Math.floor(Math.random() * (max - min + 1) + min);
-        return new Promise(r => setTimeout(r, delay));
-    },
-
-    // REFIXED: SmartClick to prevent dragging/highlighting
-    smartVisionClick: async (page, cursor, label) => {
-        const coords = await VisionAI.locateElement(page, label);
-        if (coords) {
-            // 1. Force Mouse Up to stop any ongoing "dragging"
-            await page.mouse.up();
-            
-            const targetX = coords.x + (coords.width * (0.3 + Math.random() * 0.4));
-            const targetY = coords.y + (coords.height * (0.3 + Math.random() * 0.4));
-
-            // 2. Use ghost-cursor's internal click which manages the down/up state safely
-            await cursor.click({ x: targetX, y: targetY }, { hesitate: 200 });
-            return true;
-        }
-        return false;
-    },
-
-    smartType: async (page, selector, text) => {
-        await page.focus(selector);
-        // Clear existing text first to prevent double-typing errors
-        await page.keyboard.down('Control');
-        await page.keyboard.press('A');
-        await page.keyboard.up('Control');
-        await page.keyboard.press('Backspace');
-        
-        for (const char of text) {
-            await page.keyboard.type(char, { delay: Math.random() * 70 + 50 });
-        }
-    }
-};
-
-// --- ⚙️ BROWSER ENGINE ---
+// --- ⚙️ BROWSER ENGINE (Persistent Session) ---
 async function bootEngine(queryId) {
     if (queryId) bot.answerCallbackQuery(queryId).catch(() => {});
-    await log("🛡️ **Launching Anti-Drag AI Engine...**");
+    await log("🛡️ **Launching AI Engine...**");
+    
     try {
         const browser = await puppeteer.launch({
             headless: true,
+            userDataDir: path.join(__dirname, 'session_data'), 
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
 
         state.page = (await browser.pages())[0];
         state.cursor = createCursor(state.page);
         await state.page.setViewport({ width: 1280, height: 800 });
-        await state.page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
-        
-        // Auto-Dashboard Sentinel
-        setInterval(async () => {
-            if (state.page && state.page.url().includes('cabinet') && !state.loggedIn) {
-                state.loggedIn = true;
-                await log("🎊 **DASHBOARD DETECTED!** AI loop starting...");
-                state.isAuto = true;
-                sniperLoop();
-            }
-        }, 3000);
 
-        await log("✅ **ENGINE ONLINE.** Commands: `/email`, `/password`, `/confirm`, `/sign_in`.");
+        // Auto-Resume Check
+        await state.page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'networkidle2' });
+
+        if (state.page.url().includes('cabinet')) {
+            await log("✅ **SESSION RESTORED.** Dashboard active.");
+            state.loggedIn = true;
+            state.isAuto = true;
+            sniperLoop();
+        } else {
+            await log("🔑 **LOGIN NEEDED.** Use `/confirm` then `/sign_in`.");
+            await state.page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
+        }
     } catch (e) { await log(`❌ **LAUNCH ERROR:** ${e.message}`); }
 }
 
-// --- 🤖 COMMANDS ---
-bot.onText(/\/email (.+)/, (msg, m) => { state.tempEmail = m[1].trim(); log("📧 Email set."); });
-bot.onText(/\/password (.+)/, (msg, m) => { state.tempPass = m[1].trim(); log("🔑 Pass set."); });
-
-bot.onText(/\/confirm/, async (msg) => {
-    if (!state.page) return;
-    await log("⌨️ **AI: Smart-Typing (No-Highlight Mode)...**");
-    try {
-        await HumanAI.smartType(state.page, 'input[name="email"]', state.tempEmail);
-        await HumanAI.hesitate();
-        await HumanAI.smartType(state.page, 'input[name="password"]', state.tempPass);
-        await log("🚀 **Credentials entered.**");
-    } catch (e) { await log("❌ Type failed."); }
-});
-
-bot.onText(/\/sign_in/, async (msg) => {
-    if (!state.page) return;
-    await log("🖱️ **AI: Precision Click (Fixing Dragging)...**");
-    try {
-        // Ensure no buttons are held down
-        await state.page.mouse.up();
-        
-        const success = await HumanAI.smartVisionClick(state.page, state.cursor, "sign in");
-        if (!success) {
-            // Emergency fallback using raw selector if vision misses
-            await state.page.click('button[type="submit"]');
-        }
-        await log("🚀 **Sign-in clicked.** Waiting for dashboard...");
-    } catch (e) { await log("❌ Click failed."); }
-});
-
+// --- 🤖 THE "I AM NOT A ROBOT" COMMAND ---
 bot.onText(/\/i_am_not_a_robot/, async (msg) => {
     if (!state.page) return;
-    await log("🕵️ **AI: Anti-Drag Captcha Click...**");
+    await log("🕵️ **AI: Scanning all frames for Captcha checkbox...**");
+    
     try {
+        // 1. Locate the Captcha Frame (Works for reCAPTCHA and hCaptcha)
         const frames = state.page.frames();
         const captchaFrame = frames.find(f => f.url().includes('api2/anchor') || f.url().includes('hcaptcha.com/box'));
-        const checkbox = await captchaFrame.waitForSelector('.recaptcha-checkbox-border, #checkbox', { visible: true });
-        
+
+        if (!captchaFrame) {
+            return await log("⚠️ **Captcha frame not found.** Make sure it's visible on the screen.");
+        }
+
+        // 2. Locate the checkbox selector within that frame
+        const selector = '.recaptcha-checkbox-border, #checkbox, [role="checkbox"]';
+        const checkbox = await captchaFrame.waitForSelector(selector, { visible: true, timeout: 8000 });
+
+        // 3. Coordinate Mapping (Absolute Position)
         const frameEl = await captchaFrame.frameElement();
         const fBox = await frameEl.boundingBox();
         const cBox = await checkbox.boundingBox();
 
-        await state.page.mouse.up(); // Safety reset
-        await state.cursor.click({ 
-            x: fBox.x + cBox.x + cBox.width/2, 
-            y: fBox.y + cBox.y + cBox.height/2 
+        if (fBox && cBox) {
+            const targetX = fBox.x + cBox.x + cBox.width / 2;
+            const targetY = fBox.y + cBox.y + cBox.height / 2;
+
+            await log("🖱️ **Moving to Captcha with Human physics...**");
+            
+            // Safety: Reset mouse state
+            await state.page.mouse.up();
+            
+            // Precision Glide & Click
+            await state.cursor.click({ x: targetX, y: targetY });
+            await log("✅ **Checkbox Toggled.** Use `/snap` to see the result.");
+        }
+    } catch (e) {
+        await log(`❌ **Captcha Click Failed:** ${e.message}`);
+    }
+});
+
+// --- 🖱️ SIGN-IN COMMAND ---
+bot.onText(/\/sign_in/, async (msg) => {
+    if (!state.page) return;
+    await log("🖱️ **AI: Executing Sign-In...**");
+    try {
+        await state.page.mouse.up();
+        const success = await state.page.evaluate(() => {
+            const b = document.querySelector('button[type="submit"]');
+            if (b) { b.scrollIntoView(); b.click(); return true; }
+            return false;
         });
-        await log("✅ **Captcha Toggled.**");
-    } catch (e) { await log("❌ Captcha click failed."); }
+        if (success) await log("🚀 **Login clicked.** Waiting for redirect...");
+    } catch (e) { await log("❌ Click failed."); }
+});
+
+// --- ⌨️ CREDENTIALS ---
+bot.onText(/\/email (.+)/, (msg, m) => { state.tempEmail = m[1].trim(); log("📧 Email stored."); });
+bot.onText(/\/password (.+)/, (msg, m) => { state.tempPass = m[1].trim(); log("🔑 Pass stored."); });
+
+bot.onText(/\/confirm/, async () => {
+    if (!state.page) return;
+    await log("⌨️ **AI: Typing...**");
+    try {
+        await state.page.type('input[name="email"]', state.tempEmail, { delay: 100 });
+        await state.page.type('input[name="password"]', state.tempPass, { delay: 100 });
+        await log("✅ Credentials typed.");
+    } catch (e) { await log("❌ Typing failed."); }
 });
 
 // --- 📈 SNIPER LOOP ---
@@ -172,20 +136,20 @@ async function sniperLoop() {
         const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=40`);
         const closes = res.data.map(d => parseFloat(d[4]));
         const rsi = TA.rsi({ values: closes, period: 14 }).pop();
-        
         if ((rsi < 31 || rsi > 69) && (Date.now() - state.lastTradeTime > 60000)) {
             const dir = rsi < 31 ? "Higher" : "Lower";
-            const traded = await HumanAI.smartVisionClick(state.page, state.cursor, dir);
-            if (traded) {
-                state.lastTradeTime = Date.now();
-                await log(`💰 **AI SNIPE:** ${dir} | RSI: ${rsi}`);
-            }
+            await state.page.evaluate((d) => {
+                const btn = Array.from(document.querySelectorAll('button, .btn')).find(b => b.innerText.includes(d));
+                if (btn) btn.click();
+            }, dir);
+            state.lastTradeTime = Date.now();
+            await log(`💰 **TRADE:** ${dir} | RSI: ${rsi.toFixed(1)}`);
         }
     } catch (e) {}
     setTimeout(sniperLoop, 4000); 
 }
 
-// --- 📱 TELEGRAM UI ---
+// --- 📱 UI ---
 bot.on('callback_query', async (q) => {
     if (q.data === "boot") await bootEngine(q.id);
     if (q.data === "snap") {
@@ -195,7 +159,7 @@ bot.on('callback_query', async (q) => {
 });
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💎 **PRO AI SNIPER V18**", {
+    bot.sendMessage(msg.chat.id, "💎 **PRO AI SNIPER V20**", {
         reply_markup: { inline_keyboard: [[{ text: "🌐 BOOT ENGINE", callback_data: "boot" }], [{ text: "📸 SNAP", callback_data: "snap" }]] }
     });
 });
