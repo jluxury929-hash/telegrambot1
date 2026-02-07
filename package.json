@@ -1,19 +1,16 @@
 {
-  "name": "ai-pocket-sniper-final",
-  "version": "10.8.0",
-  "main": "server.js",
+  "name": "pocket-option-ai-bot",
+  "version": "1.0.0",
+  "description": "AI-driven human-mimicry bot for Pocket Option",
+  "main": "bot.py",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "npx puppeteer browsers install chrome --install-deps"
+    "setup": "pip install -r requirements.txt && playwright install chromium",
+    "start": "python bot.py",
+    "debug-chrome": "start chrome --remote-debugging-port=9222 --user-data-dir='C:\\sel_profile'"
   },
   "dependencies": {
-    "puppeteer": "^22.0.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "ghost-cursor": "^1.1.8",
-    "node-telegram-bot-api": "^0.64.0",
-    "axios": "^1.6.0",
-    "technicalindicators": "^3.1.0",
-    "dotenv": "^16.3.0"
-  }
+    "playwright": "^1.40.0"
+  },
+  "author": "Gemini-AI-Collab",
+  "license": "MIT"
 }
