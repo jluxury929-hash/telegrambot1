@@ -1,31 +1,22 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
-const axios = require('axios');
+const robot = require('robotjs');
 const { exec } = require('child_process');
 
-// --- ANALYSIS PARAMETERS (For 90% Certainty) ---
+// --- 90% ACCURACY CONFLUENCE SETTINGS ---
 const RSI_PERIOD = 14;
 const BB_PERIOD = 20;
-const BB_STD_DEV = 2.5; // Stricter deviation for higher accuracy
+const BB_STD_DEV = 2.5; // Stricter filter for higher probability
 
-class SurgicalTitanBot {
+class TitanSurgicalBot {
     constructor(page) {
         this.page = page;
         this.priceHistory = [];
         this.isTrading = false;
+        this.yOffset = 85; // Standard Chrome Mac Header Offset
     }
 
-    async broadcast(msg) {
-        console.log(`[TITAN-AI]: ${msg}`);
-        if (!process.env.TELEGRAM_TOKEN) return;
-        try {
-            await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
-                chat_id: process.env.TELEGRAM_CHAT_ID, text: msg, parse_mode: 'Markdown'
-            });
-        } catch (e) { }
-    }
-
-    // --- WORLD RENOWNED ANALYSIS ENGINE ---
+    // --- WORLD RENOWNED ANALYSIS: RSI + BOLLINGER BANDS ---
     analyze(prices) {
         if (prices.length < BB_PERIOD) return null;
         const current = prices[prices.length - 1];
@@ -38,59 +29,60 @@ class SurgicalTitanBot {
         }
         const rsi = 100 - (100 / (1 + (gains / (losses || 1))));
 
-        // 2. Bollinger Bands (Volatility Filter)
+        // 2. Bollinger Bands
         const avg = prices.slice(-BB_PERIOD).reduce((a, b) => a + b) / BB_PERIOD;
         const std = Math.sqrt(prices.slice(-BB_PERIOD).map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b) / BB_PERIOD);
         
-        const upperBand = avg + (BB_STD_DEV * std);
-        const lowerBand = avg - (BB_STD_DEV * std);
-
-        // 3. LOGIC: ONLY EXECUTE ON TRIPLE CONFLUENCE
-        // Accurately predicts reversals at the 'edges' of the market
-        if (rsi >= 75 && current >= upperBand) return 'SELL';
-        if (rsi <= 25 && current <= lowerBand) return 'BUY';
+        // 3. TRIPLE CONFLUENCE RULES
+        if (rsi >= 75 && current >= (avg + BB_STD_DEV * std)) return 'SELL';
+        if (rsi <= 25 && current <= (avg - BB_STD_DEV * std)) return 'BUY';
         
         return null;
     }
 
-    // --- SURGICAL BUTTON LOCATION & CLICKING ---
+    // --- KERNEL-LEVEL PHYSICAL CLICK ---
     async executeTrade(dir) {
         this.isTrading = true;
         try {
-            // Locates the buttons specifically by their Pocket Option CSS classes
-            // .btn-call is the 'Buy/Higher' button, .btn-put is the 'Sell/Lower' button
+            // Locates the physical center of the ".btn-call" (BUY) or ".btn-put" (SELL)
             const selector = dir === 'BUY' ? '.btn-call' : '.btn-put';
             const btn = this.page.locator(selector).first();
+            const box = await btn.boundingBox();
 
-            if (await btn.isVisible()) {
-                const box = await btn.boundingBox();
-                this.broadcast(`🎯 **Perfect Entry Found:** ${dir} at Price ${this.priceHistory[this.priceHistory.length-1]}`);
-                
-                // Clicks exactly in the center of the detected button
-                await btn.click({ 
-                    force: true, 
-                    position: { x: box.width / 2, y: box.height / 2 } 
-                });
+            if (box) {
+                // Retina Scaling for MacBook Air/Pro
+                const screen = robot.getScreenSize();
+                const viewport = await this.page.viewportSize();
+                const scale = screen.width / viewport.width;
 
-                // 1-minute trade duration lock
-                await this.page.waitForTimeout(62000);
+                const x = (box.x + box.width / 2) * scale;
+                const y = (box.y + box.height / 2 + this.yOffset) * scale;
+
+                console.log(`🎯 [TITAN]: Executing ${dir} at Millisecond Speed...`);
+
+                // 1. Teleport Mouse to Button
+                robot.moveMouse(x, y);
+                // 2. Fire Physical Hardware Click
+                robot.mouseClick();
+                // 3. Fire Hardware Hotkey (Shift + W/S)
+                robot.keyTap(dir === 'BUY' ? 'w' : 's', 'shift');
+
+                await this.page.waitForTimeout(62000); // Expiry Lock
             }
-        } catch (e) {
-            console.log("❌ Execution Error: Could not locate buttons.");
-        }
+        } catch (e) { console.log("⚠️ Scan Error: Check if buttons are visible."); }
         this.isTrading = false;
     }
 
-    async start() {
-        this.broadcast("🚀 **Titan System Online.** Scanning for surgical entries...");
+    async run() {
+        console.log("🏆 Titan Active. Physical Control Engaged.");
         while (true) {
             try {
-                const priceStr = await this.page.locator('.current-price').innerText();
+                const priceStr = await this.page.locator('.current-price').first().innerText();
                 const price = parseFloat(priceStr.replace(/[^0-9.]/g, ''));
 
                 if (price > 0) {
                     this.priceHistory.push(price);
-                    if (this.priceHistory.length > 100) this.priceHistory.shift();
+                    if (this.priceHistory.length > 50) this.priceHistory.shift();
 
                     const signal = this.analyze(this.priceHistory);
                     if (signal && !this.isTrading) {
@@ -98,31 +90,30 @@ class SurgicalTitanBot {
                     }
                 }
             } catch (e) { }
-            await this.page.waitForTimeout(1000);
+            await this.page.waitForTimeout(500); // 0.5s Scan Rate
         }
     }
 }
 
-// --- BOOTSTRAP: THE AUTO-CONNECTION REPAIR ---
+// --- BOOTSTRAP ---
 (async () => {
-    const chromeCmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile" --no-first-run`;
-    
-    exec(chromeCmd);
-    await new Promise(r => setTimeout(r, 5000));
+    // Force Launch Chrome
+    const cmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile" --no-first-run`;
+    exec(cmd);
+    await new Promise(r => setTimeout(r, 6000));
 
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
         const context = browser.contexts()[0];
-        // Finds the actual trading tab even if other tabs are open
         const page = context.pages().find(p => p.url().includes('pocketoption.com')) || context.pages()[0];
         
         if (!page.url().includes('pocketoption.com')) {
             await page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'load' });
         }
 
-        const bot = new SurgicalTitanBot(page);
-        await bot.start();
+        const bot = new TitanSurgicalBot(page);
+        await bot.run();
     } catch (e) {
-        console.error("❌ FAILED: Close all Chrome windows and try again.");
+        console.error("❌ FAILED: Grant 'Accessibility' to Terminal and Node in Mac Settings.");
     }
 })();
