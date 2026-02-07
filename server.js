@@ -11,53 +11,49 @@ class PocketBotJS {
 
     async broadcast(msg) {
         console.log(`[BOT]: ${msg}`);
+        if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
         const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
         try {
             await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: msg, parse_mode: 'Markdown' });
         } catch (e) { console.error("Telegram error"); }
     }
 
-    async humanMove(x, y) {
-        const steps = 20 + Math.floor(Math.random() * 15);
-        for (let i = 0; i <= steps; i++) {
-            await this.page.mouse.move(x + (Math.random() - 0.5) * 5, y + (Math.random() - 0.5) * 5);
-            await this.page.waitForTimeout(20);
-        }
-    }
-
     async run() {
-        await this.broadcast("🟢 **Railway AI Online.** Monitoring Pocket Option...");
+        await this.broadcast("🟢 **Railway AI Online.** Session started in Headless mode.");
         while (true) {
-            // Analytics Simulation
-            const signal = Math.random() > 0.97 ? (Math.random() > 0.5 ? "CALL" : "PUT") : "WAIT";
+            // Your trading logic here
+            const signal = Math.random() > 0.98 ? "CALL" : (Math.random() < 0.02 ? "PUT" : "WAIT");
             
             if (signal !== "WAIT") {
-                this.broadcast(`🚀 Signal detected: ${signal}. Executing trade...`);
-                const selector = signal === "CALL" ? ".btn-call" : ".btn-put";
-                try {
-                    const box = await this.page.locator(selector).boundingBox();
-                    if (box) {
-                        await this.humanMove(box.x + box.width/2, box.y + box.height/2);
-                        await this.page.mouse.click(box.x + box.width/2, box.y + box.height/2);
-                        await this.page.waitForTimeout(61000); // 1 minute trade
-                    }
-                } catch (e) { this.broadcast("⚠️ Click failed. Is the chart loaded?"); }
+                this.broadcast(`🚀 Strategy Signal: ${signal}`);
+                // Add your click logic here
             }
-            await this.page.waitForTimeout(Math.random() * 30000 + 10000);
+            
+            await this.page.waitForTimeout(30000); // Check every 30s
         }
     }
 }
 
 (async () => {
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    
-    // Logic to add your manual login session from cookies would go here
-    const page = await context.newPage();
-    await page.goto('https://pocketoption.com/en/cabinet/');
-    
-    const bot = new PocketBotJS(page);
-    await bot.run();
+    try {
+        // HEADLESS MUST BE TRUE FOR RAILWAY
+        const browser = await chromium.launch({ 
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+        });
+        
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        });
+
+        const page = await context.newPage();
+        
+        // Go to the site
+        await page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'networkidle' });
+        
+        const bot = new PocketBotJS(page);
+        await bot.run();
+    } catch (err) {
+        console.error("FATAL ERROR:", err);
+    }
 })();
