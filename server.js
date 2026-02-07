@@ -1,92 +1,39 @@
-import time
-import random
-import requests
-from playwright.sync_api import sync_playwright
+require('dotenv').config();
+const { spawn } = require('child_process');
+const path = require('path');
 
-# --- CONFIGURATION ---
-TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
-STAKE = 1.0
+console.log("🚀 Starting Pocket Option AI Controller...");
 
-class PocketAIBot:
-    def __init__(self, page):
-        self.page = page
-        self.broadcast("🤖 AI Bot Connected & Live. Monitoring your session...")
+// Verify environment variables
+if (!process.env.TELEGRAM_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+    console.error("❌ ERROR: Missing TELEGRAM_TOKEN or TELEGRAM_CHAT_ID in .env file.");
+    process.exit(1);
+}
 
-    def broadcast(self, message):
-        """Sends a live update to your Telegram channel."""
-        print(f"[LIVE]: {message}")
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-        try:
-            requests.post(url, json=payload)
-        except Exception as e:
-            print(f"Telegram Failed: {e}")
+// Function to start the Python Bot
+const startBot = () => {
+    // We pass the .env variables directly to Python as environment variables
+    const pythonProcess = spawn('python3', [path.join(__dirname, 'bot.py')], {
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    });
 
-    def human_mouse_action(self, selector):
-        """Mimics a human scanning the screen before clicking."""
-        box = self.page.locator(selector).bounding_box()
-        if box:
-            # 1. 'Think' for a second
-            time.sleep(random.uniform(0.5, 1.5))
-            # 2. Move to the general area with a curve
-            target_x = box['x'] + (box['width'] * random.uniform(0.2, 0.8))
-            target_y = box['y'] + (box['height'] * random.uniform(0.2, 0.8))
-            self.page.mouse.move(target_x, target_y, steps=25)
-            # 3. Click
-            self.page.mouse.click(target_x, target_y)
+    pythonProcess.stdout.on('data', (data) => {
+        console.log(`[AI BOT]: ${data.toString().trim()}`);
+    });
 
-    def perform_routine_check(self):
-        """Mimics a human checking other platform features."""
-        actions = [
-            ("Checking Social Trading sentiment...", ".side-menu__link[href*='social']"),
-            ("Analyzing 'Signals' tab...", ".side-menu__link[href*='signals']"),
-            ("Reviewing recent trade history...", ".side-menu__link[href*='history']")
-        ]
-        task_name, selector = random.choice(actions)
-        self.broadcast(f"🧐 {task_name}")
-        try:
-            self.page.click(selector, timeout=2000)
-            time.sleep(random.uniform(3, 6))
-            self.page.keyboard.press("Escape") # Close any popups
-        except:
-            self.broadcast("⚠️ Feature menu slightly different, skipping to avoid detection.")
+    pythonProcess.stderr.on('data', (data) => {
+        const error = data.toString();
+        if (error.includes("not found")) {
+            console.error("❌ CRITICAL: Python3 is not installed in this container.");
+        } else {
+            console.error(`[AI ERROR]: ${error}`);
+        }
+    });
 
-    def run(self):
-        while True:
-            # AI ANALYTICS LOGIC
-            # Imagine this is connected to a 'World Class' data feed
-            self.broadcast("📊 Scanning Bollinger Bands & RSI for entry...")
-            
-            # Simulated Signal Logic
-            chance = random.random()
-            if chance > 0.97:
-                self.broadcast("🚀 **STRATEGY ALERT**: Strong BULLISH trend detected.")
-                self.human_mouse_action(".btn-call")
-                self.broadcast(f"✅ Trade placed: CALL ${STAKE}. Waiting for result...")
-                time.sleep(62) # Wait for trade expiry
-            
-            elif random.random() > 0.90:
-                # Anti-Freeze Behavior
-                self.perform_routine_check()
-            
-            # Random 'Rest' Period
-            idle_time = random.randint(20, 60)
-            if idle_time > 50:
-                self.broadcast(f"💤 Idling for {idle_time}s to maintain human profile...")
-            time.sleep(idle_time)
+    pythonProcess.on('close', (code) => {
+        console.log(`[SYSTEM]: Bot process exited with code ${code}. Restarting in 5s...`);
+        setTimeout(startBot, 5000); // Auto-restart if it crashes
+    });
+};
 
-def main():
-    with sync_playwright() as p:
-        try:
-            browser = p.chromium.connect_over_cdp("http://localhost:9222")
-            page = browser.contexts[0].pages[0]
-            bot = PocketAIBot(page)
-            bot.run()
-        except Exception as e:
-            # Fatal error notification
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                          json={"chat_id": TELEGRAM_CHAT_ID, "text": f"❌ BOT CRASHED: {e}"})
-
-if __name__ == "__main__":
-    main()
+startBot();
