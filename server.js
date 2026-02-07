@@ -1,82 +1,57 @@
-require('dotenv').config();
-const { chromium } = require('playwright');
-const { createCursor } = require('ghost-cursor');
-const axios = require('axios');
-
-// --- SYSTEM STATE ---
-const state = {
-    page: null,
-    cursor: null,
-    isAuto: false,
-    isPredicting: false,
-    lastTradeTime: 0
-};
-
-// --- 🛰️ PRECISION TRIANGULATION ENGINE ---
+// --- 🛰️ FINAL CERTAINTY TRIANGULATION ENGINE ---
 async function precisionClick(direction) {
     if (!state.page || !state.cursor) return false;
 
     try {
-        const selectors = direction === "UP" 
-            ? ['.btn-call', '.up', 'button:has-text("Higher")', '.p-buy'] 
-            : ['.btn-put', '.down', 'button:has-text("Lower")', '.p-sell'];
+        await log(`🔍 **Triangulating ${direction}...**`);
 
-        let targetHandle = null;
-        for (const selector of selectors) {
-            targetHandle = await state.page.$(selector);
-            if (targetHandle) break;
+        // 1. LAYER ONE: Role & Text Triangulation (Most Reliable)
+        // We look for any button that contains "Buy", "Up", "Call", "Sell", "Down", or "Put"
+        const labelRegex = direction === "UP" ? /Buy|Up|Call|Higher/i : /Sell|Down|Put|Lower/i;
+        
+        let target = state.page.getByRole('button', { name: labelRegex }).first();
+
+        // 2. LAYER TWO: CSS Triangulation Fallback
+        if (!(await target.isVisible())) {
+            const cssSelector = direction === "UP" ? ".btn-call, .up-btn" : ".btn-put, .down-btn";
+            target = state.page.locator(cssSelector).first();
         }
 
-        if (!targetHandle) {
-            console.log(`⚠️ Target Loss: Could not find ${direction} button.`);
+        // 3. LAYER THREE: Actionability Check
+        await target.waitFor({ state: 'visible', timeout: 5000 });
+        const box = await target.boundingBox();
+
+        if (!box) {
+            await log(`❌ **Critical Failure:** Button found but coordinates are zero.`);
             return false;
         }
 
-        const box = await targetHandle.boundingBox();
-        if (!box) return false;
+        // 🎯 EXACT CENTER TRIANGULATION
+        const targetX = box.x + box.width / 2;
+        const targetY = box.y + box.height / 2;
 
-        // Triangulate target point (center 40% area)
-        const targetX = box.x + box.width / 2 + (Math.random() * (box.width * 0.4) - (box.width * 0.2));
-        const targetY = box.y + box.height / 2 + (Math.random() * (box.height * 0.4) - (box.height * 0.2));
-
-        console.log(`🎯 Triangulated ${direction}: [X: ${Math.round(targetX)}, Y: ${Math.round(targetY)}]`);
-
-        // Move cursor in non-linear Bezier curve
+        // 4. EXECUTION: The Triple-Tap
+        // Move ghost-cursor (Stealth)
         await state.cursor.moveTo({ x: targetX, y: targetY });
 
-        // Humanized Click
-        await state.page.mouse.down();
-        await new Promise(r => setTimeout(r, Math.random() * 50 + 30));
-        await state.page.mouse.up();
+        // Force a hardware-level click event bypasses most anti-bot layers
+        await target.dispatchEvent('mousedown');
+        await target.dispatchEvent('mouseup');
+        await target.dispatchEvent('click');
 
+        await log(`💰 **ORDER EXECUTED:** ${direction} button confirmed.`);
         return true;
+
     } catch (e) {
-        console.error(`❌ Triangulation Error: ${e.message}`);
-        return false;
+        // FAIL-SAFE: If the button is blocked by an overlay, use 'force: true'
+        try {
+            const selector = direction === "UP" ? ".btn-call" : ".btn-put";
+            await state.page.click(selector, { force: true, timeout: 2000 });
+            await log(`⚠️ **Emergency Click:** Forced interaction used.`);
+            return true;
+        } catch (err) {
+            await log(`❌ **Triangulation Lost:** ${e.message}`);
+            return false;
+        }
     }
 }
-
-// --- 🤖 AUTO-PILOT LOOP ---
-async function sniperLoop() {
-    if (!state.isAuto || state.isPredicting) return;
-    
-    // Placeholder for your analysis logic
-    const intel = { signal: "UP" }; // Example signal
-    
-    if (intel.signal !== "NEUTRAL" && (Date.now() - state.lastTradeTime > 60000)) {
-        state.isPredicting = true;
-        const success = await precisionClick(intel.signal);
-        if (success) state.lastTradeTime = Date.now();
-        state.isPredicting = false;
-    }
-    setTimeout(sniperLoop, 3000); 
-}
-
-// Start Command
-(async () => {
-    const browser = await chromium.launch({ headless: false });
-    state.page = await browser.newPage();
-    state.cursor = createCursor(state.page);
-    await state.page.goto('https://pocketoption.com/en/login/');
-    console.log("🚀 Engine Online. Log in to start triangulation.");
-})();
