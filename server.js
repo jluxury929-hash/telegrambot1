@@ -1,23 +1,22 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
 const robot = require('robotjs');
-const axios = require('axios');
 const { exec } = require('child_process');
+const axios = require('axios');
 
 const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } = process.env;
 
-class TitanOmniBot {
+class TitanMaster {
     constructor(page) {
         this.page = page;
         this.priceHistory = [];
         this.isTrading = false;
-        // High-Profit Guardrails
-        this.rsiPeriod = 14;
-        this.minProfitCertainty = 90; 
+        // Mac UI Offset: Adjusted for Chrome's address bar/tabs on macOS
+        this.yOffset = 85; 
     }
 
     async broadcast(msg) {
-        console.log(`[TITAN-SYSTEM]: ${msg}`);
+        console.log(`[TITAN]: ${msg}`);
         if (!TELEGRAM_TOKEN) return;
         try {
             await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
@@ -26,104 +25,76 @@ class TitanOmniBot {
         } catch (e) { }
     }
 
-    // --- 1. SCAN: MAP PHYSICAL LOCATIONS ---
-    async mapUI() {
-        this.broadcast("🔍 **Omni-Scan:** Mapping buttons to physical screen space...");
-        const callBtn = this.page.locator('.btn-call').first();
-        const putBtn = this.page.locator('.btn-put').first();
-
-        this.callCoords = await callBtn.boundingBox();
-        this.putCoords = await putBtn.boundingBox();
-
-        if (!this.callCoords || !this.putCoords) {
-            throw new Error("UI Scan Failed. Ensure the Trading Chart is visible.");
-        }
+    // --- HARDWARE CALIBRATION ---
+    async getRetinaScale() {
+        const screen = robot.getScreenSize();
+        const viewport = await this.page.viewportSize();
+        // Calculates the Retina multiplier (usually 2 on MacBooks)
+        return screen.width / viewport.width;
     }
 
-    // --- 2. ANALYZE: GET PLATFORM AI SIGNAL ---
-    async getPlatformAISignal() {
+    // --- PROFITABLE FEATURE SCAN ---
+    async getInternalSignal() {
         try {
-            // Reads the recommendation from the 'Automation' AI Mode in Settings
-            const aiText = await this.page.locator('.ai-recommendation-value').innerText();
-            if (aiText.includes('Strong Buy')) return 'CALL';
-            if (aiText.includes('Strong Sell')) return 'PUT';
+            // Scrapes the Signal enabled in your Settings > AI Trading
+            const signalText = await this.page.locator('.ai-recommendation-value').innerText();
+            if (signalText.includes('Strong Buy')) return 'CALL';
+            if (signalText.includes('Strong Sell')) return 'PUT';
+            return null;
         } catch (e) { return null; }
     }
 
-    // --- 3. EXECUTE: PHYSICAL HARDWARE CONTROL ---
-    async physicalExecution(dir) {
+    // --- PHYSICAL EXECUTION ---
+    async executeHardwareTrade(dir) {
         this.isTrading = true;
-        const target = dir === 'CALL' ? this.callCoords : this.putCoords;
-        
-        // Retina Scaling: Adjusts for high-res Mac displays
-        const screen = robot.getScreenSize();
-        const viewport = await this.page.viewportSize();
-        const scale = screen.width / viewport.width;
+        const selector = dir === 'CALL' ? '.btn-call' : '.btn-put';
+        const btn = this.page.locator(selector).first();
+        const box = await btn.boundingBox();
 
-        // Offset: Accounts for Chrome's top bar (~85px)
-        const x = (target.x + target.width / 2) * scale;
-        const y = (target.y + target.height / 2 + 85) * scale;
+        if (box) {
+            const scale = await this.getRetinaScale();
+            // Calculate pixel-perfect center of the button on YOUR Mac screen
+            const x = (box.x + box.width / 2) * scale;
+            const y = (box.y + box.height / 2 + this.yOffset) * scale;
 
-        this.broadcast(`🎯 **TITAN SIGNAL:** Moving hardware mouse to ${dir}.`);
-        
-        // Actual physical movement and click
-        robot.moveMouseSmooth(x, y);
-        robot.mouseClick();
+            this.broadcast(`🎯 **TITAN EXECUTION:** Moving physical mouse to ${dir}.`);
+            
+            // Physical Hardware Control
+            robot.moveMouseSmooth(x, y);
+            robot.mouseClick();
 
-        // Backup: Inject Hotkey (Shift + W/S) for 100% execution certainty
-        robot.keyTap(dir === 'CALL' ? 'w' : 's', 'shift');
-
-        await this.page.waitForTimeout(62000); // Lock for trade duration
+            // Hardware Key Injection: Uses the Shift + W/S hotkeys from Settings
+            robot.keyTap(dir === 'CALL' ? 'w' : 's', 'shift');
+            
+            await this.page.waitForTimeout(62000); // 1-minute lock
+        }
         this.isTrading = false;
     }
 
-    calculateRSI(prices) {
-        if (prices.length <= this.rsiPeriod) return 50;
-        let gains = 0, losses = 0;
-        for (let i = prices.length - this.rsiPeriod; i < prices.length; i++) {
-            let diff = prices[i] - prices[i-1];
-            diff >= 0 ? gains += diff : losses -= diff;
-        }
-        return 100 - (100 / (1 + (gains / (losses || 1))));
-    }
-
     async run() {
-        await this.mapUI();
-        this.broadcast("🏆 **Titan AI Active.** Operating in Physical Master Mode.");
-
+        this.broadcast("🏆 **Titan AI Active.** Control: Physical Mouse/Keyboard.");
+        
         while (true) {
             try {
-                const priceStr = await this.page.locator('.current-price').innerText();
-                const price = parseFloat(priceStr.replace(/[^0-9.]/g, ''));
-
-                if (price > 0) {
-                    this.priceHistory.push(price);
-                    if (this.priceHistory.length > 50) this.priceHistory.shift();
-
-                    const rsi = this.calculateRSI(this.priceHistory);
-                    const aiSignal = await this.getPlatformAISignal();
-
-                    console.log(`[ANALYSIS] RSI: ${rsi.toFixed(1)} | Platform AI: ${aiSignal || 'Analyzing...'}`);
-
-                    // --- THE 100% CERTAINTY GATE ---
-                    if (!this.isTrading && aiSignal) {
-                        if (aiSignal === 'CALL' && rsi <= 30) await this.physicalExecution('CALL');
-                        if (aiSignal === 'PUT' && rsi >= 70) await this.physicalExecution('PUT');
-                    }
+                const signal = await this.getInternalSignal();
+                
+                // You can also add your RSI logic here for Double-Confirmation
+                if (signal && !this.isTrading) {
+                    await this.executeHardwareTrade(signal);
                 }
-            } catch (err) { console.log("Searching for UI..."); }
+            } catch (err) {
+                console.log("Syncing with UI...");
+            }
             await this.page.waitForTimeout(1000);
         }
     }
 }
 
-// --- BOOTSTRAP: AUTO-LAUNCH ---
+// --- BOOTSTRAP ---
 (async () => {
-    console.log("🚀 Initializing Hardware Bridge...");
-    const chrome = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`;
-    const flags = `--remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile"`;
-    exec(`${chrome} ${flags}`);
-    
+    // 1. Force Launch Chrome in Debug Mode
+    const cmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile"`;
+    exec(cmd);
     await new Promise(r => setTimeout(r, 6000));
 
     try {
@@ -135,9 +106,9 @@ class TitanOmniBot {
             await page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'load' });
         }
 
-        const bot = new TitanOmniBot(page);
+        const bot = new TitanMaster(page);
         await bot.run();
     } catch (e) {
-        console.error("❌ FATAL: Connection failed. Reset Mac Accessibility permissions.");
+        console.error("❌ FATAL: Check Permissions or Restart Chrome.");
     }
 })();
