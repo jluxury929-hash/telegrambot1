@@ -1,7 +1,7 @@
 {
   "name": "pocket-option-ai",
   "version": "1.0.0",
-  "description": "AI Trading Bot for Pocket Option",
+  "description": "AI Trading Bot with Triangulation Engine",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,6 +10,8 @@
   "dependencies": {
     "playwright": "^1.40.0",
     "axios": "^1.6.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "ghost-cursor": "^1.1.0",
+    "technicalindicators": "^3.1.0"
   }
 }
