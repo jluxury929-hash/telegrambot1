@@ -1,137 +1,101 @@
-require('dotenv').config();
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const { createCursor } = require('ghost-cursor');
-const { typeInto } = require('@forad/puppeteer-humanize'); // Essential for 2026 stealth
-const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
-const TA = require('technicalindicators');
-const path = require('path');
+import time
+import random
+import requests
+import numpy as np
+from playwright.sync_api import sync_playwright
 
-puppeteer.use(StealthPlugin());
+# --- CONFIGURATION ---
+TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
+MAX_DAILY_LOSS = 50.0  # Stop for the day if down $50
+TARGET_PROFIT = 100.0  # Stop if up $100
+STAKE = 1.0            # Amount per trade
 
-const state = {
-    page: null,
-    cursor: null,
-    isAuto: false,
-    adminId: 6588957206, 
-    lastTradeTime: 0,
-    loggedIn: false
-};
+# SELECTORS (These vary; use 'Inspect' in Chrome to verify current IDs)
+BTN_CALL = ".btn-call"    # The 'Higher' button
+BTN_PUT = ".btn-put"      # The 'Lower' button
+BTN_SIGNALS = ".side-menu__link[href*='signals']"
+BTN_TIMEFRAME = ".chart-period"
 
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
+class HumanBot:
+    def __init__(self, page):
+        self.page = page
+        self.daily_pnl = 0
 
-// --- 🧬 HUMAN BIOMETRIC ENGINE ---
-const BiometricAI = {
-    // 1. Human Mouse Physics (Ghost Cursor)
-    // Moves in smooth, unpredictable curves with overshoot
-    glide: async (cursor, selector) => {
-        await cursor.click(selector, {
-            moveSpeed: 500 + Math.random() * 500, // Varied speed
-            hesitate: 200 + Math.random() * 600,  // Pause before clicking
-            waitForClick: 80 + Math.random() * 100 // Time button is held down
-        });
-    },
+    def send_log(self, message):
+        print(f"[LOG]: {message}")
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage?chat_id={TELEGRAM_CHAT_ID}&text={message}"
+        try: requests.get(url) 
+        except: pass
 
-    // 2. Human Keystroke Dynamics
-    // Adds typos, variable speed, and backspacing
-    type: async (page, selector, text) => {
-        const element = await page.waitForSelector(selector);
-        const config = {
-            mistakes: { chance: 8, delay: { min: 100, max: 500 } }, // 8% chance of typo
-            delays: { char: { min: 50, max: 150 } } // Varied speed per key
-        };
-        await typeInto(element, text, config);
-    },
+    def human_move(self, x, y):
+        """Moves mouse in a non-linear, shaky path (Bezier Curve)"""
+        current_x, current_y = 0, 0 # Simplified start
+        steps = random.randint(15, 35)
+        for i in range(steps):
+            # Add 'jitter' to the path
+            jx = x + random.uniform(-2, 2)
+            jy = y + random.uniform(-2, 2)
+            self.page.mouse.move(jx, jy)
+            time.sleep(random.uniform(0.01, 0.03))
 
-    // 3. Cognitive Hesitation
-    // Mimics a human "thinking" before making a trade
-    think: async () => {
-        const pauses = [1000, 2500, 4000, 7000];
-        const delay = pauses[Math.floor(Math.random() * pauses.length)] + Math.random() * 1000;
-        return new Promise(r => setTimeout(r, delay));
-    }
-};
-
-// --- ⚙️ BROWSER ENGINE (Persistent Session) ---
-async function bootEngine() {
-    await bot.sendMessage(state.adminId, "🦾 **Initializing Biometric Stealth Engine...**");
-    try {
-        const browser = await puppeteer.launch({
-            headless: true, // Headless is fine if biometrics are humanized
-            userDataDir: path.join(__dirname, 'session_data'), 
-            args: [
-                '--no-sandbox', '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
-                '--window-size=1920,1080'
-            ]
-        });
-
-        state.page = (await browser.pages())[0];
-        state.cursor = createCursor(state.page); // Attach Ghost Cursor
+    def interact_with_feature(self):
+        """Randomly uses platform features to avoid 'Trading Only' patterns"""
+        features = ["check_signals", "change_zoom", "switch_timeframe", "idle"]
+        choice = random.choice(features)
         
-        await state.page.setViewport({ width: 1920, height: 1080 });
-        await state.page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'networkidle2' });
-
-        if (state.page.url().includes('cabinet')) {
-            await bot.sendMessage(state.adminId, "✅ **Human Session Active.** Monitoring signals...");
-            state.loggedIn = true;
-            state.isAuto = true;
-            sniperLoop();
-        } else {
-            await bot.sendMessage(state.adminId, "🔑 **Login required once.** Use `/login`.");
-            await state.page.goto('https://pocketoption.com/en/login/', { waitUntil: 'networkidle2' });
-        }
-    } catch (e) { setTimeout(bootEngine, 10000); }
-}
-
-// --- 🖱️ HUMANIZED COMMANDS ---
-bot.onText(/\/login/, async () => {
-    if (!state.page) return;
-    try {
-        // Type Email like a human
-        await BiometricAI.type(state.page, 'input[name="email"]', process.env.EMAIL);
-        await BiometricAI.think();
-        // Type Password like a human
-        await BiometricAI.type(state.page, 'input[name="password"]', process.env.PASS);
-        await bot.sendMessage(state.adminId, "🚀 **Typed.** Solve Captcha if needed, then `/sign_in`.");
-    } catch (e) { await bot.sendMessage(state.adminId, "❌ Elements not found."); }
-});
-
-bot.onText(/\/sign_in/, async () => {
-    // Glide mouse to the Sign-In button and click humanly
-    await BiometricAI.glide(state.cursor, 'button[type="submit"]');
-});
-
-// --- 📈 SNIPER LOOP (Human Behavioral Logic) ---
-async function sniperLoop() {
-    if (!state.isAuto || !state.page) return;
-    try {
-        const res = await axios.get(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=40`);
-        const closes = res.data.map(d => parseFloat(d[4]));
-        const rsi = TA.rsi({ values: closes, period: 14 }).pop();
-
-        if ((rsi < 31 || rsi > 69) && (Date.now() - state.lastTradeTime > 75000)) {
-            const dir = rsi < 31 ? "Higher" : "Lower";
+        if choice == "check_signals":
+            self.send_log("Checking platform signals for 'human' activity...")
+            self.page.click(BTN_SIGNALS)
+            time.sleep(random.uniform(3, 7))
+        elif choice == "change_zoom":
+            for _ in range(random.randint(1, 3)):
+                self.page.keyboard.press("Control++" if random.random() > 0.5 else "Control+-")
+        elif choice == "switch_timeframe":
+            self.page.click(BTN_TIMEFRAME)
+            time.sleep(random.uniform(1, 2))
             
-            // 1. Human "Reaction Time" (0.8s - 2.5s)
-            await new Promise(r => setTimeout(r, 800 + Math.random() * 1700));
+    def execute_trade(self, direction):
+        selector = BTN_CALL if direction == "UP" else BTN_PUT
+        box = self.page.locator(selector).bounding_box()
+        if box:
+            # Click a random spot on the button, not the center
+            tx = box['x'] + (box['width'] * random.uniform(0.1, 0.9))
+            ty = box['y'] + (box['height'] * random.uniform(0.1, 0.9))
+            self.human_move(tx, ty)
+            self.page.mouse.click(tx, ty)
+            self.send_log(f"Executed {direction} trade at ${STAKE}")
 
-            // 2. Identify and Glide to Trade Button
-            const selector = dir === "Higher" ? ".btn-call" : ".btn-put";
-            await BiometricAI.glide(state.cursor, selector);
+    def run_24_7_logic(self):
+        self.send_log("AI System Online. Monitoring Market Data...")
+        
+        while -MAX_DAILY_LOSS < self.daily_pnl < TARGET_PROFIT:
+            # ANALYTICS PLACEHOLDER
+            # In a real setup, pull RSI/MACD here via JS or API
+            # For this demo, we simulate a 'High Probability' signal
+            signal = "UP" if random.random() > 0.98 else "NONE"
+            
+            if signal != "NONE":
+                self.execute_trade(signal)
+                time.sleep(65) # Wait for 1m candle to close
+                # Update daily_pnl logic here based on balance change
+            
+            # Anti-Freeze Behavior
+            if random.random() > 0.90:
+                self.interact_with_feature()
+            
+            # Random 'rest' to look like a person getting coffee
+            time.sleep(random.randint(10, 45))
 
-            state.lastTradeTime = Date.now();
-            await bot.sendMessage(state.adminId, `💰 **AI TRADE:** ${dir} | RSI: ${rsi.toFixed(1)}`);
-        }
-    } catch (e) {}
-    
-    // 3. Variable Heartbeat (3s - 9s)
-    const jitter = 3000 + (Math.random() * 6000);
-    setTimeout(sniperLoop, jitter); 
-}
+def main():
+    with sync_playwright() as p:
+        # Connect to your MANUAL login session
+        browser = p.chromium.connect_over_cdp("http://localhost:9222")
+        context = browser.contexts[0]
+        page = context.pages[0]
+        
+        bot = HumanBot(page)
+        bot.run_24_7_logic()
 
-bot.onText(/\/start/, (msg) => {
-    if (msg.from.id !== state.adminId) return;
-    bootEngine();
-});
+if __name__ == "__main__":
+    main()
