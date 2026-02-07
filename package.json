@@ -1,14 +1,14 @@
 {
-  "name": "pocket-option-js-bot",
-  "version": "1.4.0",
-  "description": "Pure JS AI Trading Bot with Human Mimicry",
+  "name": "pocket-option-ai",
+  "version": "1.0.0",
+  "description": "AI Trading Bot for Pocket Option",
   "main": "server.js",
   "scripts": {
-    "setup": "npm install playwright dotenv && npx playwright install chromium",
     "start": "node server.js"
   },
   "dependencies": {
-    "dotenv": "^16.3.1",
-    "playwright": "^1.40.0"
+    "playwright": "^1.40.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
   }
 }
