@@ -9,7 +9,7 @@ const RSI_PERIOD = 14;
 const OVERBOUGHT = 70; 
 const OVERSOLD = 30;   
 
-class WorldsBestAnalysisBot {
+class AlphaMimicBot {
     constructor(page) {
         this.page = page;
         this.priceHistory = [];
@@ -21,9 +21,7 @@ class WorldsBestAnalysisBot {
         if (!TELEGRAM_TOKEN) return;
         try {
             await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-                chat_id: TELEGRAM_CHAT_ID,
-                text: msg,
-                parse_mode: 'Markdown'
+                chat_id: TELEGRAM_CHAT_ID, text: msg, parse_mode: 'Markdown'
             });
         } catch (e) { }
     }
@@ -33,11 +31,9 @@ class WorldsBestAnalysisBot {
         let gains = 0, losses = 0;
         for (let i = prices.length - RSI_PERIOD; i < prices.length; i++) {
             let diff = prices[i] - prices[i - 1];
-            if (diff >= 0) gains += diff;
-            else losses -= diff;
+            diff >= 0 ? gains += diff : losses -= diff;
         }
-        let rs = gains / (losses || 1);
-        return 100 - (100 / (1 + rs));
+        return 100 - (100 / (1 + (gains / (losses || 1))));
     }
 
     async getLivePrice() {
@@ -45,76 +41,68 @@ class WorldsBestAnalysisBot {
         return parseFloat(priceStr.replace(/[^0-9.]/g, ''));
     }
 
-    async humanMoveAndClick(selector, action) {
+    async execute(dir) {
+        const selector = dir === 'CALL' ? '.btn-call' : '.btn-put';
         const box = await this.page.locator(selector).boundingBox();
         if (box) {
-            this.broadcast(`🎯 **Analysis Confirmed:** Executing ${action}.`);
-            const targetX = box.x + box.width * (0.3 + Math.random() * 0.4);
-            const targetY = box.y + box.height * (0.3 + Math.random() * 0.4);
-            await this.page.mouse.move(targetX, targetY, { steps: 35 });
-            await this.page.waitForTimeout(600);
-            await this.page.mouse.click(targetX, targetY);
+            this.broadcast(`🎯 **Signal Found:** RSI Confirmation. Executing ${dir}...`);
+            await this.page.mouse.move(box.x + box.width/2, box.y + box.height/2, { steps: 30 });
+            await this.page.mouse.click(box.x + box.width/2, box.y + box.height/2);
             await this.page.waitForTimeout(62000); 
         }
     }
 
-    async analyze() {
-        const price = await this.getLivePrice();
-        if (price > 0) {
-            this.priceHistory.push(price);
-            if (this.priceHistory.length > 50) this.priceHistory.shift();
-        }
-        const rsi = this.calculateRSI(this.priceHistory);
-        console.log(`[DATA]: Price: ${price} | RSI: ${rsi.toFixed(2)}`);
-
-        if (rsi >= OVERBOUGHT && !this.isTrading) {
-            this.isTrading = true;
-            await this.humanMoveAndClick('.btn-put', 'PUT');
-            this.isTrading = false;
-        } else if (rsi <= OVERSOLD && !this.isTrading) {
-            this.isTrading = true;
-            await this.humanMoveAndClick('.btn-call', 'CALL');
-            this.isTrading = false;
-        }
-    }
-
     async start() {
-        this.broadcast("🧠 **Quantitative AI Engine Online.** Analyzing live...");
+        this.broadcast("🧠 **AI Initialized.** I have opened and connected to Chrome.");
         while (true) {
-            await this.analyze();
+            const price = await this.getLivePrice();
+            if (price > 0) {
+                this.priceHistory.push(price);
+                if (this.priceHistory.length > 50) this.priceHistory.shift();
+                const rsi = this.calculateRSI(this.priceHistory);
+                
+                if (rsi >= OVERBOUGHT && !this.isTrading) {
+                    this.isTrading = true;
+                    await this.execute('PUT');
+                    this.isTrading = false;
+                } else if (rsi <= OVERSOLD && !this.isTrading) {
+                    this.isTrading = true;
+                    await this.execute('CALL');
+                    this.isTrading = false;
+                }
+            }
             await this.page.waitForTimeout(2000);
         }
     }
 }
 
-// --- AUTO-LAUNCH LOGIC ---
+// --- THE AUTO-START REPAIR ---
 (async () => {
-    console.log("🚀 Launching Chrome in Debug Mode...");
+    console.log("🚀 Step 1: Automatically launching Chrome in Debug Mode...");
     
-    // Commands for MacOS
-    const chromeCmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile"`;
+    // This executes your exact Mac command automatically
+    const chromeCmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile" --no-first-run`;
     
     exec(chromeCmd, (err) => {
-        if (err) console.error("❌ Failed to launch Chrome:", err);
+        if (err) console.log("Note: Chrome might already be open.");
     });
 
-    // Wait for Chrome to warm up
-    console.log("⏳ Waiting for Chrome to initialize...");
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log("⏳ Step 2: Waiting 5s for Chrome to stabilize...");
+    await new Promise(r => setTimeout(r, 5000));
 
     try {
+        console.log("🔗 Step 3: Connecting Playwright to the tab...");
         const browser = await chromium.connectOverCDP('http://localhost:9222');
         const context = browser.contexts()[0];
         const page = context.pages()[0];
         
-        // Auto-navigate to the trade room if not already there
         if (!page.url().includes('pocketoption.com')) {
-            await page.goto('https://pocketoption.com/en/cabinet/');
+            await page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'load' });
         }
 
-        const bot = new WorldsBestAnalysisBot(page);
+        const bot = new AlphaMimicBot(page);
         await bot.start();
     } catch (e) {
-        console.error("❌ CONNECTION FAILED: Try closing all Chrome instances first.");
+        console.error("❌ CONNECTION FAILED: Try closing all Chrome windows manually and run again.");
     }
 })();
