@@ -4,16 +4,17 @@ const axios = require('axios');
 
 const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } = process.env;
 
-class UniversalPocketBot {
+class OmniAwareAI {
     constructor(page) {
         this.page = page;
+        this.controlMap = new Map();
         this.priceHistory = [];
         this.isTrading = false;
-        this.rsiPeriod = 14;
+        this.signalsIgnored = 0;
     }
 
     async broadcast(msg) {
-        console.log(`[SYSTEM]: ${msg}`);
+        console.log(`[AI-OMNI]: ${msg}`);
         if (!TELEGRAM_TOKEN) return;
         try {
             await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
@@ -22,106 +23,113 @@ class UniversalPocketBot {
         } catch (e) { }
     }
 
-    // Advanced RSI calculation for any market
-    calculateRSI(prices) {
-        if (prices.length <= this.rsiPeriod) return 50;
+    // --- STEP 1: SCAN AND LEARN ---
+    async discoveryPhase() {
+        this.broadcast("🕵️ **Scanning entire site infrastructure...**");
+        const elements = await this.page.locator('button, a, [role="button"], .btn, .side-menu__link').all();
+        
+        for (const el of elements) {
+            try {
+                const text = (await el.innerText()).trim().toLowerCase();
+                const isVisible = await el.isVisible();
+                
+                if (text && isVisible) {
+                    if (text.includes('call') || text.includes('higher')) this.controlMap.set('CALL', el);
+                    if (text.includes('put') || text.includes('lower')) this.controlMap.set('PUT', el);
+                    if (text.includes('signals')) this.controlMap.set('SIGNALS', el);
+                    if (text.includes('social')) this.controlMap.set('SOCIAL', el);
+                    if (text.includes('demo') || text.includes('real')) this.controlMap.set('ACCOUNT_TYPE', el);
+                }
+            } catch (e) {}
+        }
+        this.broadcast(`🧠 **Learning complete.** Mapped ${this.controlMap.size} system nodes.`);
+    }
+
+    // --- STEP 2: MOST PROFITABLE ANALYSIS ---
+    // Calculates a High-Conviction score (must be >80 to trade)
+    async getProfitabilityScore() {
+        const priceStr = await this.page.locator('.current-price').first().innerText().catch(() => "0");
+        const price = parseFloat(priceStr.replace(/[^0-9.]/g, ''));
+        if (!price) return 0;
+
+        this.priceHistory.push(price);
+        if (this.priceHistory.length > 100) this.priceHistory.shift();
+        if (this.priceHistory.length < 20) return 0;
+
+        // RSI Calculation
         let gains = 0, losses = 0;
-        for (let i = prices.length - this.rsiPeriod; i < prices.length; i++) {
-            let diff = prices[i] - prices[i - 1];
+        for (let i = this.priceHistory.length - 14; i < this.priceHistory.length; i++) {
+            let diff = this.priceHistory[i] - this.priceHistory[i - 1];
             diff >= 0 ? gains += diff : losses -= diff;
         }
-        return 100 - (100 / (1 + (gains / (losses || 1))));
+        const rsi = 100 - (100 / (1 + (gains / (losses || 1))));
+        
+        // Bollinger Band Estimation (Standard Deviation)
+        const avg = this.priceHistory.reduce((a, b) => a + b) / this.priceHistory.length;
+        const squareDiffs = this.priceHistory.map(p => Math.pow(p - avg, 2));
+        const stdDev = Math.sqrt(squareDiffs.reduce((a, b) => a + b) / squareDiffs.length);
+        
+        const upperBand = avg + (stdDev * 2);
+        const lowerBand = avg - (stdDev * 2);
+
+        // CONFLUENCE LOGIC: RSI + BB Breakout
+        if (rsi <= 30 && price <= lowerBand) return 95; // Extreme Oversold + Support
+        if (rsi >= 70 && price >= upperBand) return -95; // Extreme Overbought + Resistance
+        
+        return 0;
     }
 
-    async findPrice() {
-        // Universal selector: looks for the biggest moving number in the trade area
-        const priceSelectors = [
-            '.current-price', 
-            '.price-value', 
-            '[class*="currentPrice"]', 
-            '.value--main'
-        ];
-        
-        for (let selector of priceSelectors) {
-            const el = this.page.locator(selector).first();
-            if (await el.isVisible()) {
-                const text = await el.innerText();
-                const cleanPrice = parseFloat(text.replace(/[^0-9.]/g, ''));
-                if (cleanPrice > 0) return cleanPrice;
-            }
-        }
-        return null;
-    }
+    // --- STEP 3: OPERATE ---
+    async run() {
+        await this.discoveryPhase();
 
-    async start() {
-        this.broadcast("🌍 **Universal AI Engine Active.** Scanning page for trade controls...");
-        
         while (true) {
-            try {
-                const price = await this.findPrice();
-
-                if (!price) {
-                    console.log("🔍 Scanning page for price chart...");
-                    await this.page.waitForTimeout(3000);
-                    continue;
+            const score = await this.getProfitabilityScore();
+            
+            if (Math.abs(score) >= 90 && !this.isTrading) {
+                const dir = score > 0 ? 'CALL' : 'PUT';
+                await this.execute(dir);
+            } else {
+                this.signalsIgnored++;
+                if (this.signalsIgnored % 20 === 0) {
+                    await this.broadcast("📊 *Scanning:* No high-conviction entries found. Maintaining capital safety.");
+                    if (Math.random() > 0.8) await this.interactWithFeatures();
                 }
-
-                this.priceHistory.push(price);
-                if (this.priceHistory.length > 100) this.priceHistory.shift();
-
-                const rsi = this.calculateRSI(this.priceHistory);
-                console.log(`[LIVE] Price: ${price} | RSI: ${rsi.toFixed(2)} | History: ${this.priceHistory.length}`);
-
-                // Profit Strategy: RSI Confluence
-                if (!this.isTrading && this.priceHistory.length > this.rsiPeriod) {
-                    if (rsi >= 70) await this.executeTrade('PUT');
-                    else if (rsi <= 30) await this.executeTrade('CALL');
-                }
-
-            } catch (err) {
-                console.log("⚠️ Page sync issue, retrying...");
             }
-            await this.page.waitForTimeout(1000);
+            await this.page.waitForTimeout(2000);
         }
     }
 
-    async executeTrade(dir) {
+    async execute(dir) {
         this.isTrading = true;
-        // Universal button selectors for CALL/PUT
-        const btnSelector = dir === 'CALL' 
-            ? '.btn-call, .up, [class*="btn-up"], .btn-buy' 
-            : '.btn-put, .down, [class*="btn-down"], .btn-sell';
-            
-        try {
-            const btn = this.page.locator(btnSelector).first();
+        const btn = this.controlMap.get(dir);
+        if (btn) {
+            this.broadcast(`🎯 **PROFIT TRIGGER:** High-probability ${dir} signal. Executing...`);
             const box = await btn.boundingBox();
-            
-            if (box) {
-                this.broadcast(`🚀 **Universal Signal:** ${dir} at RSI ${this.calculateRSI(this.priceHistory).toFixed(0)}`);
-                // Humanized click
-                await this.page.mouse.move(box.x + box.width/2, box.y + box.height/2, { steps: 20 });
-                await btn.click();
-                await this.page.waitForTimeout(61000); // Expiry lock
-            }
-        } catch (e) {
-            console.log("❌ Could not find trade buttons on this page.");
+            await this.page.mouse.move(box.x + box.width/2, box.y + box.height/2, { steps: 30 });
+            await btn.click();
+            await this.page.waitForTimeout(62000); // 1m expiry
         }
         this.isTrading = false;
+    }
+
+    async interactWithFeatures() {
+        const feature = Array.from(this.controlMap.values())[Math.floor(Math.random() * this.controlMap.size)];
+        try {
+            await feature.hover();
+            await this.page.waitForTimeout(1000);
+            this.broadcast("🛡️ *Security:* Feature interaction simulated to prevent pattern detection.");
+        } catch (e) {}
     }
 }
 
 (async () => {
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
-        const context = browser.contexts()[0];
-        
-        // Dynamic tab finding: works regardless of URL
-        const pages = context.pages();
-        const page = pages.find(p => p.url().includes('pocketoption')) || pages[0];
-
-        const bot = new UniversalPocketBot(page);
-        await bot.start();
+        const page = (await browser.contexts()[0].pages()).find(p => p.url().includes('pocketoption')) || (await browser.contexts()[0].pages())[0];
+        const bot = new OmniAwareAI(page);
+        await bot.run();
     } catch (e) {
-        console.error("❌ CONNECTION FAILED: Open Chrome with port 9222 first.");
+        console.error("❌ CONNECTION FAILED: Open Chrome on port 9222.");
     }
 })();
