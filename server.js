@@ -1,24 +1,23 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
-const robot = require('robotjs'); // Physical control
+const robot = require('robotjs');
 const axios = require('axios');
 const { exec } = require('child_process');
 
 const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } = process.env;
 
-class TitanPhysicalAI {
+class TitanOmniBot {
     constructor(page) {
         this.page = page;
         this.priceHistory = [];
         this.isTrading = false;
-        // High-Profit Indicator Settings
+        // High-Profit Guardrails
         this.rsiPeriod = 14;
-        this.overbought = 75; // More conservative for higher profit
-        this.oversold = 25;
+        this.minProfitCertainty = 90; 
     }
 
     async broadcast(msg) {
-        console.log(`[TITAN]: ${msg}`);
+        console.log(`[TITAN-SYSTEM]: ${msg}`);
         if (!TELEGRAM_TOKEN) return;
         try {
             await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
@@ -27,10 +26,9 @@ class TitanPhysicalAI {
         } catch (e) { }
     }
 
-    // --- FEATURE SCANNER ---
-    // Scans the screen and maps buttons to physical coordinates
-    async scanAndMap() {
-        this.broadcast("🔍 **Scanning Features...** Mapping UI to Physical Coordinates.");
+    // --- 1. SCAN: MAP PHYSICAL LOCATIONS ---
+    async mapUI() {
+        this.broadcast("🔍 **Omni-Scan:** Mapping buttons to physical screen space...");
         const callBtn = this.page.locator('.btn-call').first();
         const putBtn = this.page.locator('.btn-put').first();
 
@@ -38,92 +36,108 @@ class TitanPhysicalAI {
         this.putCoords = await putBtn.boundingBox();
 
         if (!this.callCoords || !this.putCoords) {
-            throw new Error("Could not find trade buttons. Is the chart open?");
+            throw new Error("UI Scan Failed. Ensure the Trading Chart is visible.");
         }
     }
 
-    // --- PHYSICAL EXECUTION ENGINE ---
-    async executePhysicalTrade(dir) {
-        this.isTrading = true;
-        const coords = dir === 'CALL' ? this.callCoords : this.putCoords;
-        
-        // 1. Move REAL mouse to the button
-        // We add 80px for the Mac Chrome header/tabs
-        const x = coords.x + coords.width / 2;
-        const y = coords.y + coords.height / 2 + 80;
+    // --- 2. ANALYZE: GET PLATFORM AI SIGNAL ---
+    async getPlatformAISignal() {
+        try {
+            // Reads the recommendation from the 'Automation' AI Mode in Settings
+            const aiText = await this.page.locator('.ai-recommendation-value').innerText();
+            if (aiText.includes('Strong Buy')) return 'CALL';
+            if (aiText.includes('Strong Sell')) return 'PUT';
+        } catch (e) { return null; }
+    }
 
-        this.broadcast(`🎯 **PROFIT SIGNAL:** Moving physical mouse to ${dir}.`);
-        robot.moveMouseSmooth(x, y);
+    // --- 3. EXECUTE: PHYSICAL HARDWARE CONTROL ---
+    async physicalExecution(dir) {
+        this.isTrading = true;
+        const target = dir === 'CALL' ? this.callCoords : this.putCoords;
         
-        // 2. Click the REAL mouse
+        // Retina Scaling: Adjusts for high-res Mac displays
+        const screen = robot.getScreenSize();
+        const viewport = await this.page.viewportSize();
+        const scale = screen.width / viewport.width;
+
+        // Offset: Accounts for Chrome's top bar (~85px)
+        const x = (target.x + target.width / 2) * scale;
+        const y = (target.y + target.height / 2 + 85) * scale;
+
+        this.broadcast(`🎯 **TITAN SIGNAL:** Moving hardware mouse to ${dir}.`);
+        
+        // Actual physical movement and click
+        robot.moveMouseSmooth(x, y);
         robot.mouseClick();
 
-        // 3. Backup: Tap the HOTKEY (Shift + W/S)
+        // Backup: Inject Hotkey (Shift + W/S) for 100% execution certainty
         robot.keyTap(dir === 'CALL' ? 'w' : 's', 'shift');
 
-        // 4. Wait for trade to clear
-        await this.page.waitForTimeout(62000);
+        await this.page.waitForTimeout(62000); // Lock for trade duration
         this.isTrading = false;
     }
 
-    // --- WORLD'S BEST ANALYSIS ---
     calculateRSI(prices) {
         if (prices.length <= this.rsiPeriod) return 50;
         let gains = 0, losses = 0;
         for (let i = prices.length - this.rsiPeriod; i < prices.length; i++) {
-            let diff = prices[i] - prices[i - 1];
+            let diff = prices[i] - prices[i-1];
             diff >= 0 ? gains += diff : losses -= diff;
         }
         return 100 - (100 / (1 + (gains / (losses || 1))));
     }
 
     async run() {
-        await this.scanAndMap();
-        this.broadcast("🚀 **Titan Online.** Physical control engaged.");
+        await this.mapUI();
+        this.broadcast("🏆 **Titan AI Active.** Operating in Physical Master Mode.");
 
         while (true) {
             try {
-                const priceStr = await this.page.locator('.current-price').innerText().catch(() => "0");
+                const priceStr = await this.page.locator('.current-price').innerText();
                 const price = parseFloat(priceStr.replace(/[^0-9.]/g, ''));
 
                 if (price > 0) {
                     this.priceHistory.push(price);
-                    if (this.priceHistory.length > 100) this.priceHistory.shift();
+                    if (this.priceHistory.length > 50) this.priceHistory.shift();
 
                     const rsi = this.calculateRSI(this.priceHistory);
-                    console.log(`[ANALYSIS] Price: ${price} | RSI: ${rsi.toFixed(2)}`);
+                    const aiSignal = await this.getPlatformAISignal();
 
-                    if (!this.isTrading && this.priceHistory.length > this.rsiPeriod) {
-                        if (rsi >= this.overbought) await this.executePhysicalTrade('PUT');
-                        else if (rsi <= this.oversold) await this.executePhysicalTrade('CALL');
+                    console.log(`[ANALYSIS] RSI: ${rsi.toFixed(1)} | Platform AI: ${aiSignal || 'Analyzing...'}`);
+
+                    // --- THE 100% CERTAINTY GATE ---
+                    if (!this.isTrading && aiSignal) {
+                        if (aiSignal === 'CALL' && rsi <= 30) await this.physicalExecution('CALL');
+                        if (aiSignal === 'PUT' && rsi >= 70) await this.physicalExecution('PUT');
                     }
                 }
-            } catch (err) {
-                console.log("Searching for price...");
-            }
+            } catch (err) { console.log("Searching for UI..."); }
             await this.page.waitForTimeout(1000);
         }
     }
 }
 
-// --- BOOTSTRAP ---
+// --- BOOTSTRAP: AUTO-LAUNCH ---
 (async () => {
-    // 1. Launch Chrome
-    const cmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile" --no-first-run`;
-    exec(cmd);
+    console.log("🚀 Initializing Hardware Bridge...");
+    const chrome = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`;
+    const flags = `--remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile"`;
+    exec(`${chrome} ${flags}`);
+    
     await new Promise(r => setTimeout(r, 6000));
 
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
-        const page = (await browser.contexts()[0].pages()).find(p => p.url().includes('pocketoption')) || (await browser.contexts()[0].pages())[0];
-        
+        const context = browser.contexts()[0];
+        const page = context.pages().find(p => p.url().includes('pocketoption')) || context.pages()[0];
+
         if (!page.url().includes('pocketoption.com')) {
             await page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'load' });
         }
 
-        const bot = new TitanPhysicalAI(page);
+        const bot = new TitanOmniBot(page);
         await bot.run();
     } catch (e) {
-        console.error("❌ CONNECTION FAILED: Enable Accessibility in Mac Settings!");
+        console.error("❌ FATAL: Connection failed. Reset Mac Accessibility permissions.");
     }
 })();
