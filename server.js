@@ -1,20 +1,23 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
 const axios = require('axios');
+const { exec } = require('child_process');
 
 const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } = process.env;
+const RSI_PERIOD = 14;
 
-class OmniAwareAI {
+class OmniGhostBot {
     constructor(page) {
         this.page = page;
-        this.controlMap = new Map();
         this.priceHistory = [];
         this.isTrading = false;
-        this.signalsIgnored = 0;
+        this.controlMap = new Map();
+        this.isPausedByHuman = false;
+        this.lastHumanAction = Date.now();
     }
 
     async broadcast(msg) {
-        console.log(`[AI-OMNI]: ${msg}`);
+        console.log(`[AI-GHOST]: ${msg}`);
         if (!TELEGRAM_TOKEN) return;
         try {
             await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
@@ -23,80 +26,79 @@ class OmniAwareAI {
         } catch (e) { }
     }
 
-    // --- STEP 1: SCAN AND LEARN ---
-    async discoveryPhase() {
-        this.broadcast("🕵️ **Scanning entire site infrastructure...**");
-        const elements = await this.page.locator('button, a, [role="button"], .btn, .side-menu__link').all();
+    // --- STEP 1: SCAN & LEARN ---
+    async scanAndLearn() {
+        this.broadcast("🕵️ **Deep Scan:** Mapping site infrastructure...");
+        const elements = await this.page.locator('button, a, .btn, .side-menu__link').all();
         
         for (const el of elements) {
             try {
                 const text = (await el.innerText()).trim().toLowerCase();
-                const isVisible = await el.isVisible();
-                
-                if (text && isVisible) {
-                    if (text.includes('call') || text.includes('higher')) this.controlMap.set('CALL', el);
-                    if (text.includes('put') || text.includes('lower')) this.controlMap.set('PUT', el);
-                    if (text.includes('signals')) this.controlMap.set('SIGNALS', el);
-                    if (text.includes('social')) this.controlMap.set('SOCIAL', el);
-                    if (text.includes('demo') || text.includes('real')) this.controlMap.set('ACCOUNT_TYPE', el);
-                }
+                if (text.includes('call') || text.includes('higher')) this.controlMap.set('CALL', el);
+                if (text.includes('put') || text.includes('lower')) this.controlMap.set('PUT', el);
             } catch (e) {}
         }
-        this.broadcast(`🧠 **Learning complete.** Mapped ${this.controlMap.size} system nodes.`);
+        this.broadcast(`🧠 **Learning complete.** Mapped ${this.controlMap.size} trade nodes.`);
     }
 
-    // --- STEP 2: MOST PROFITABLE ANALYSIS ---
-    // Calculates a High-Conviction score (must be >80 to trade)
-    async getProfitabilityScore() {
-        const priceStr = await this.page.locator('.current-price').first().innerText().catch(() => "0");
-        const price = parseFloat(priceStr.replace(/[^0-9.]/g, ''));
-        if (!price) return 0;
+    // --- STEP 2: MANUAL OVERRIDE DETECTION ---
+    // Injects a script to detect if YOU are using the mouse
+    async setupHumanOverride() {
+        await this.page.exposeFunction('onHumanActivity', () => {
+            if (!this.isPausedByHuman) {
+                this.isPausedByHuman = true;
+                this.broadcast("⚠️ **Manual Override:** Human detected. Pausing AI...");
+            }
+            this.lastHumanAction = Date.now();
+        });
 
-        this.priceHistory.push(price);
-        if (this.priceHistory.length > 100) this.priceHistory.shift();
-        if (this.priceHistory.length < 20) return 0;
+        await this.page.addInitScript(() => {
+            window.addEventListener('mousemove', () => window.onHumanActivity());
+            window.addEventListener('mousedown', () => window.onHumanActivity());
+            window.addEventListener('keydown', () => window.onHumanActivity());
+        });
+    }
 
-        // RSI Calculation
+    // --- STEP 3: MOST PROFITABLE EXECUTION ---
+    calculateRSI(prices) {
+        if (prices.length <= RSI_PERIOD) return 50;
         let gains = 0, losses = 0;
-        for (let i = this.priceHistory.length - 14; i < this.priceHistory.length; i++) {
-            let diff = this.priceHistory[i] - this.priceHistory[i - 1];
+        for (let i = prices.length - RSI_PERIOD; i < prices.length; i++) {
+            let diff = prices[i] - prices[i - 1];
             diff >= 0 ? gains += diff : losses -= diff;
         }
-        const rsi = 100 - (100 / (1 + (gains / (losses || 1))));
-        
-        // Bollinger Band Estimation (Standard Deviation)
-        const avg = this.priceHistory.reduce((a, b) => a + b) / this.priceHistory.length;
-        const squareDiffs = this.priceHistory.map(p => Math.pow(p - avg, 2));
-        const stdDev = Math.sqrt(squareDiffs.reduce((a, b) => a + b) / squareDiffs.length);
-        
-        const upperBand = avg + (stdDev * 2);
-        const lowerBand = avg - (stdDev * 2);
-
-        // CONFLUENCE LOGIC: RSI + BB Breakout
-        if (rsi <= 30 && price <= lowerBand) return 95; // Extreme Oversold + Support
-        if (rsi >= 70 && price >= upperBand) return -95; // Extreme Overbought + Resistance
-        
-        return 0;
+        return 100 - (100 / (1 + (gains / (losses || 1))));
     }
 
-    // --- STEP 3: OPERATE ---
-    async run() {
-        await this.discoveryPhase();
+    async start() {
+        await this.setupHumanOverride();
+        await this.scanAndLearn();
+        
+        this.broadcast("🚀 **Ghost Mode Active.** I am now monitoring everything.");
 
         while (true) {
-            const score = await this.getProfitabilityScore();
-            
-            if (Math.abs(score) >= 90 && !this.isTrading) {
-                const dir = score > 0 ? 'CALL' : 'PUT';
-                await this.execute(dir);
-            } else {
-                this.signalsIgnored++;
-                if (this.signalsIgnored % 20 === 0) {
-                    await this.broadcast("📊 *Scanning:* No high-conviction entries found. Maintaining capital safety.");
-                    if (Math.random() > 0.8) await this.interactWithFeatures();
+            // Check if human stopped interacting (3 second grace period)
+            if (this.isPausedByHuman && Date.now() - this.lastHumanAction > 3000) {
+                this.isPausedByHuman = false;
+                this.broadcast("🔄 **Resuming:** Mouse clear. AI taking control.");
+            }
+
+            if (!this.isPausedByHuman && !this.isTrading) {
+                const priceStr = await this.page.locator('.current-price').first().innerText().catch(() => "0");
+                const price = parseFloat(priceStr.replace(/[^0-9.]/g, ''));
+
+                if (price > 0) {
+                    this.priceHistory.push(price);
+                    if (this.priceHistory.length > 50) this.priceHistory.shift();
+                    
+                    const rsi = this.calculateRSI(this.priceHistory);
+                    console.log(`Price: ${price} | RSI: ${rsi.toFixed(2)}`);
+
+                    if (rsi >= 70) await this.execute('PUT');
+                    else if (rsi <= 30) await this.execute('CALL');
                 }
             }
-            await this.page.waitForTimeout(2000);
+            await this.page.waitForTimeout(1000);
         }
     }
 
@@ -104,32 +106,39 @@ class OmniAwareAI {
         this.isTrading = true;
         const btn = this.controlMap.get(dir);
         if (btn) {
-            this.broadcast(`🎯 **PROFIT TRIGGER:** High-probability ${dir} signal. Executing...`);
             const box = await btn.boundingBox();
-            await this.page.mouse.move(box.x + box.width/2, box.y + box.height/2, { steps: 30 });
+            // Human-like curved trajectory
+            await this.page.mouse.move(box.x + box.width/2, box.y + box.height/2, { steps: 25 });
             await btn.click();
-            await this.page.waitForTimeout(62000); // 1m expiry
+            this.broadcast(`🎯 **Profit Entry:** ${dir} at RSI ${this.calculateRSI(this.priceHistory).toFixed(0)}`);
+            await this.page.waitForTimeout(61000); 
         }
         this.isTrading = false;
     }
-
-    async interactWithFeatures() {
-        const feature = Array.from(this.controlMap.values())[Math.floor(Math.random() * this.controlMap.size)];
-        try {
-            await feature.hover();
-            await this.page.waitForTimeout(1000);
-            this.broadcast("🛡️ *Security:* Feature interaction simulated to prevent pattern detection.");
-        } catch (e) {}
-    }
 }
 
+// --- BOOTSTRAP: AUTO-LAUNCH CHROME & NAVIGATE ---
 (async () => {
+    console.log("🚀 Launching Chrome...");
+    const cmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile" --no-first-run`;
+    exec(cmd);
+    
+    await new Promise(r => setTimeout(r, 5000));
+
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
-        const page = (await browser.contexts()[0].pages()).find(p => p.url().includes('pocketoption')) || (await browser.contexts()[0].pages())[0];
-        const bot = new OmniAwareAI(page);
-        await bot.run();
+        const context = browser.contexts()[0];
+        const page = context.pages()[0];
+        
+        // Ensure we open Pocket Option immediately
+        if (!page.url().includes('pocketoption.com')) {
+            console.log("📍 Navigating to Pocket Option Trade Room...");
+            await page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'networkidle' });
+        }
+
+        const bot = new OmniGhostBot(page);
+        await bot.start();
     } catch (e) {
-        console.error("❌ CONNECTION FAILED: Open Chrome on port 9222.");
+        console.error("❌ ERROR: Connection failed. Close all Chrome windows and restart.");
     }
 })();
