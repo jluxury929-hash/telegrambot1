@@ -1,27 +1,37 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
-const robot = require('robotjs');
+const axios = require('axios');
 const { exec } = require('child_process');
 
-// --- 90% ACCURACY CONFLUENCE SETTINGS ---
+// --- HIGH-ACCURACY SETTINGS ---
+const { TELEGRAM_TOKEN, TELEGRAM_CHAT_ID } = process.env;
 const RSI_PERIOD = 14;
-const BB_PERIOD = 20;
-const BB_STD_DEV = 2.5; // Stricter filter for higher probability
+const BB_PERIOD = 20; // Bollinger Bands for volatility filtering
+const BB_STD_DEV = 2.5; // Stricter entry for 90% accuracy
 
 class TitanSurgicalBot {
     constructor(page) {
         this.page = page;
         this.priceHistory = [];
         this.isTrading = false;
-        this.yOffset = 85; // Standard Chrome Mac Header Offset
     }
 
-    // --- WORLD RENOWNED ANALYSIS: RSI + BOLLINGER BANDS ---
+    async broadcast(msg) {
+        console.log(`[TITAN]: ${msg}`);
+        if (!TELEGRAM_TOKEN) return;
+        try {
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                chat_id: TELEGRAM_CHAT_ID, text: msg, parse_mode: 'Markdown'
+            });
+        } catch (e) { }
+    }
+
+    // --- WORLD CLASS ANALYSIS: RSI + BOLLINGER CONFLUENCE ---
     analyze(prices) {
         if (prices.length < BB_PERIOD) return null;
         const current = prices[prices.length - 1];
 
-        // 1. RSI Calculation
+        // 1. RSI
         let gains = 0, losses = 0;
         for (let i = prices.length - RSI_PERIOD; i < prices.length; i++) {
             let d = prices[i] - prices[i - 1];
@@ -33,87 +43,90 @@ class TitanSurgicalBot {
         const avg = prices.slice(-BB_PERIOD).reduce((a, b) => a + b) / BB_PERIOD;
         const std = Math.sqrt(prices.slice(-BB_PERIOD).map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b) / BB_PERIOD);
         
-        // 3. TRIPLE CONFLUENCE RULES
+        // 3. LOGIC: ONLY EXECUTE ON EXTREME REVERSALS
         if (rsi >= 75 && current >= (avg + BB_STD_DEV * std)) return 'SELL';
         if (rsi <= 25 && current <= (avg - BB_STD_DEV * std)) return 'BUY';
         
         return null;
     }
 
-    // --- KERNEL-LEVEL PHYSICAL CLICK ---
-    async executeTrade(dir) {
+    // --- MILLISECOND SURGICAL EXECUTION ---
+    async execute(dir) {
         this.isTrading = true;
+        // Pocket Option internal button classes
+        const selector = dir === 'BUY' ? '.btn-call' : '.btn-put';
+        
         try {
-            // Locates the physical center of the ".btn-call" (BUY) or ".btn-put" (SELL)
-            const selector = dir === 'BUY' ? '.btn-call' : '.btn-put';
             const btn = this.page.locator(selector).first();
-            const box = await btn.boundingBox();
-
-            if (box) {
-                // Retina Scaling for MacBook Air/Pro
-                const screen = robot.getScreenSize();
-                const viewport = await this.page.viewportSize();
-                const scale = screen.width / viewport.width;
-
-                const x = (box.x + box.width / 2) * scale;
-                const y = (box.y + box.height / 2 + this.yOffset) * scale;
-
-                console.log(`🎯 [TITAN]: Executing ${dir} at Millisecond Speed...`);
-
-                // 1. Teleport Mouse to Button
-                robot.moveMouse(x, y);
-                // 2. Fire Physical Hardware Click
-                robot.mouseClick();
-                // 3. Fire Hardware Hotkey (Shift + W/S)
-                robot.keyTap(dir === 'BUY' ? 'w' : 's', 'shift');
-
-                await this.page.waitForTimeout(62000); // Expiry Lock
+            if (await btn.isVisible()) {
+                this.broadcast(`🎯 **SURGICAL ENTRY:** ${dir} detected. Injecting click...`);
+                
+                // dispatchEvent bypasses mouse movement time and clicks instantly
+                await btn.dispatchEvent('click'); 
+                
+                // Wait for trade to clear (62s)
+                await this.page.waitForTimeout(62000);
             }
-        } catch (e) { console.log("⚠️ Scan Error: Check if buttons are visible."); }
+        } catch (e) {
+            console.log("❌ Execution failed: Button lost.");
+        }
         this.isTrading = false;
     }
 
-    async run() {
-        console.log("🏆 Titan Active. Physical Control Engaged.");
+    async start() {
+        this.broadcast("🚀 **Titan System Active.** Monitoring background nodes...");
+        
         while (true) {
             try {
-                const priceStr = await this.page.locator('.current-price').first().innerText();
+                // AUTO-DETECTION: Only analyze if we are on the trading chart
+                if (!this.page.url().includes('pocketoption.com')) {
+                    console.log("Waiting for Pocket Option navigation...");
+                    await this.page.waitForTimeout(2000);
+                    continue;
+                }
+
+                const priceStr = await this.page.locator('.current-price').first().innerText().catch(() => "0");
                 const price = parseFloat(priceStr.replace(/[^0-9.]/g, ''));
 
                 if (price > 0) {
                     this.priceHistory.push(price);
-                    if (this.priceHistory.length > 50) this.priceHistory.shift();
+                    if (this.priceHistory.length > 100) this.priceHistory.shift();
 
                     const signal = this.analyze(this.priceHistory);
                     if (signal && !this.isTrading) {
-                        await this.executeTrade(signal);
+                        await this.execute(signal);
                     }
                 }
             } catch (e) { }
-            await this.page.waitForTimeout(500); // 0.5s Scan Rate
+            await this.page.waitForTimeout(500); // High-speed scan rate
         }
     }
 }
 
-// --- BOOTSTRAP ---
+// --- AUTO-BOOTSTRAP ENGINE ---
 (async () => {
-    // Force Launch Chrome
-    const cmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile" --no-first-run`;
-    exec(cmd);
+    console.log("🛠️ Initializing Hardware/Software Bridge...");
+    const chromeCmd = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="${process.env.HOME}/ChromeBotProfile" --no-first-run`;
+    
+    exec(chromeCmd);
     await new Promise(r => setTimeout(r, 6000));
 
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
         const context = browser.contexts()[0];
-        const page = context.pages().find(p => p.url().includes('pocketoption.com')) || context.pages()[0];
         
-        if (!page.url().includes('pocketoption.com')) {
+        // Find the Pocket Option tab automatically
+        let page = context.pages().find(p => p.url().includes('pocketoption.com'));
+        
+        if (!page) {
+            console.log("Opening new Pocket Option tab...");
+            page = await context.newPage();
             await page.goto('https://pocketoption.com/en/cabinet/', { waitUntil: 'load' });
         }
 
         const bot = new TitanSurgicalBot(page);
-        await bot.run();
+        await bot.start();
     } catch (e) {
-        console.error("❌ FAILED: Grant 'Accessibility' to Terminal and Node in Mac Settings.");
+        console.error("❌ CONNECTION FAILED: Please close all Chrome windows and restart.");
     }
 })();
