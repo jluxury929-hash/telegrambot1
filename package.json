@@ -1,13 +1,12 @@
 {
   "name": "pocket-robot-atomic",
-  "version": "12.0.0",
+  "version": "12.5.0",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js",
-    "install-clean": "rm -rf node_modules package-lock.json && npm install --legacy-peer-deps"
+    "start": "node bot.js"
   },
   "dependencies": {
-    "jito-js-rpc": "^0.2.2", 
+    "jito-js-rpc": "^0.2.2",
     "@solana/web3.js": "^1.88.0",
     "axios": "^1.6.0",
     "bip39": "^3.1.0",
