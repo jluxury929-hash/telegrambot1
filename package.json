@@ -1,19 +1,13 @@
 {
   "name": "pocket-robot-atomic",
   "version": "16.0.0",
-  "description": "Institutional Solana Binary Options Bot with Jito Atomic Bundling",
   "main": "bot.js",
-  "engines": {
-    "node": ">=22.0.0"
-  },
   "scripts": {
-    "start": "node bot.js",
-    "build": "npm install --legacy-peer-deps",
-    "clean": "rm -rf node_modules package-lock.json && npm install --legacy-peer-deps"
+    "start": "node bot.js"
   },
   "dependencies": {
-    "@pythnetwork/pyth-solana-receiver": "^0.13.0",
-    "@solana/web3.js": "^1.88.0",
+    "@pythnetwork/pyth-solana-receiver": "0.7.0",
+    "@solana/web3.js": "^1.91.6",
     "axios": "^1.13.5",
     "bip39": "^3.1.0",
     "dotenv": "^16.4.0",
@@ -21,6 +15,7 @@
     "telegraf": "^4.16.0",
     "telegraf-session-local": "^2.1.0"
   },
-  "author": "Apex Pro",
-  "license": "MIT"
+  "overrides": {
+    "rpc-websockets": "7.11.0"
+  }
 }
