@@ -1,12 +1,6 @@
 {
-  "name": "pocket-robot-atomic",
-  "version": "12.5.0",
-  "main": "bot.js",
-  "scripts": {
-    "start": "node bot.js"
-  },
   "dependencies": {
-    "jito-js-rpc": "^0.2.2",
+    "@pythnetwork/pyth-solana-receiver": "^0.13.0",
     "@solana/web3.js": "^1.88.0",
     "axios": "^1.6.0",
     "bip39": "^3.1.0",
