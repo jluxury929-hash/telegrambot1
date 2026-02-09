@@ -1,15 +1,22 @@
 {
-  "name": "pocket-option-ai",
-  "version": "1.0.0",
-  "description": "AI Trading Bot for Pocket Option",
-  "main": "server.js",
+  "name": "pocket-robot-atomic",
+  "version": "12.0.0",
+  "description": "Institutional Solana Binary Options Bot with Jito Atomic Bundling",
+  "main": "bot.js",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "npx playwright install --with-deps chromium"
+    "start": "node bot.js",
+    "dev": "nodemon bot.js"
   },
   "dependencies": {
-    "playwright": "^1.40.0",
+    "@jito-foundation/jito-js-sdk": "^1.0.1",
+    "@solana/web3.js": "^1.88.0",
     "axios": "^1.6.0",
-    "dotenv": "^16.3.1"
-  }
+    "bip39": "^3.1.0",
+    "dotenv": "^16.3.1",
+    "ed25519-hd-key": "^1.3.0",
+    "telegraf": "^4.15.0",
+    "telegraf-session-local": "^2.1.0"
+  },
+  "author": "Apex Pro",
+  "license": "MIT"
 }
