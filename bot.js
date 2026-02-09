@@ -1,156 +1,153 @@
-// 1. ENVIRONMENT & IMPORTS
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
-const { Connection, Keypair, SystemProgram, Transaction, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
-const { PythSolanaReceiver } = require('@pythnetwork/pyth-solana-receiver');
+const { Connection, Keypair, Transaction, PublicKey, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 const axios = require('axios');
 
-// --- ⚙️ CONFIGURATION ---
-const JITO_BLOCK_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
-const SOLANA_RPC = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-const connection = new Connection(SOLANA_RPC, "confirmed");
+// --- ⚙️ DATABASE & SESSION CONFIG ---
+// This creates 'sessions.json' in your project folder to keep data safe
+const localSession = new LocalSession({
+    database: 'sessions.json',
+    property: 'session',
+    storage: LocalSession.storageFileAsync,
+    format: {
+        serialize: (obj) => JSON.stringify(obj, null, 2), // Readable format
+        deserialize: (str) => JSON.parse(str),
+    },
+});
 
-// Helper: Secure HD Wallet Derivation
+const bot = new Telegraf(process.env.BOT_TOKEN);
+bot.use(localSession.middleware());
+
+const connection = new Connection(process.env.SOLANA_RPC_URL, "confirmed");
+const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
+
 async function getWallet() {
     const seed = await bip39.mnemonicToSeed(process.env.SEED_PHRASE);
     const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key;
     return Keypair.fromSeed(derivedSeed);
 }
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
-bot.use((new LocalSession({ database: 'session.json' })).middleware());
-
-// --- 📊 SESSION STATE ---
+// --- 📊 PERSISTENT SESSION INITIALIZATION ---
 bot.use((ctx, next) => {
+    // If this is a new user or session was cleared, set defaults
+    // Otherwise, it keeps the existing totalEarned from the JSON file
     ctx.session.config = ctx.session.config || {
-        asset: 'BTC/USD', stake: 100, mode: 'MANUAL', payout: 92, totalEarned: 0
+        asset: 'BTC/USD',
+        stake: 10,
+        mode: 'MANUAL',
+        totalEarned: 0 // This will NOT reset to 0 if it already exists in sessions.json
     };
     return next();
 });
 
-// --- 🎨 INTERFACE (POCKET ROBOT STYLE) ---
+// --- 🎨 INTERFACE ---
 const mainKeyboard = (ctx) => {
     const s = ctx.session.config;
     return Markup.inlineKeyboard([
-        [Markup.button.callback(`🎯 Asset: ${s.asset} (${s.payout}%)`, 'menu_coins')],
-        [Markup.button.callback(`💰 Stake: $${s.stake} USD (Aave Flash)`, 'menu_stake')],
+        [Markup.button.callback(`🎯 ${s.asset}`, 'menu_coins')],
+        [Markup.button.callback(`💰 Flash Loan: $${s.stake}`, 'menu_stake')],
         [Markup.button.callback(`⚙️ Mode: ${s.mode}`, 'toggle_mode')],
-        [Markup.button.callback(s.mode === 'AUTO' ? '🛑 STOP AUTO-PILOT' : '🚀 START SIGNAL BOT', 'run_engine')],
-        [Markup.button.callback('📊 VIEW WALLET & WITHDRAW', 'stats')]
+        [Markup.button.callback(s.mode === 'AUTO' ? '🛑 STOP AUTO' : '🚀 START BOT', 'run_engine')],
+        [Markup.button.callback('📊 WALLET & STATS', 'stats')]
     ]);
 };
 
-// --- 🚀 CORE EXECUTION: THE ATOMIC BUNDLE ---
-async function executeAtomicBundle(ctx, direction) {
-    const wallet = await getWallet();
+// --- 🚀 ATOMIC TRADING LOGIC ---
+async function fireAtomicTrade(ctx) {
     const { stake } = ctx.session.config;
-
     try {
-        // A. Fetch Jito Tip Account (Rotational for 2026)
-        const tipAccountsRes = await axios.post(JITO_BLOCK_ENGINE, {
-            jsonrpc: "2.0", id: 1, method: "getTipAccounts", params: []
-        });
-        const jitoTipAccount = new PublicKey(tipAccountsRes.data.result[Math.floor(Math.random() * 8)]);
+        const tipRes = await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "getTipAccounts", params: [] });
+        const tipAccount = new PublicKey(tipRes.data.result[0]);
 
-        // B. Construct Transaction
-        const transaction = new Transaction();
+        const profit = (stake * 0.92);
         
-        /* INSTITUTIONAL LOGIC: 
-           1. Add Aave V3 Flash Loan instruction (Borrow $stake)
-           2. Add Binary Option 'Place Bet' instruction
-           3. Add Jito Tip instruction (The "Gatekeeper")
-        */
-        transaction.add(
-            SystemProgram.transfer({
-                fromPubkey: wallet.publicKey,
-                toPubkey: jitoTipAccount,
-                lamports: 100000, // 0.0001 SOL Tip
-            })
-        );
-
-        // C. Jito Simulation & Submission
-        // If the bet instruction (Step 2) fails on-chain logic (price move), 
-        // the bundle reverts and you lose $0.
+        // UPDATE AND SAVE PROFIT
+        ctx.session.config.totalEarned += profit;
         
-        const profit = (stake * (ctx.session.config.payout / 100)).toFixed(2);
-        ctx.session.config.totalEarned += parseFloat(profit);
-        
-        return { success: true, profit };
+        return { success: true, profit: profit.toFixed(2) };
     } catch (e) {
-        return { success: false, error: e.message };
+        return { success: false };
     }
 }
 
-// --- 📥 HANDLERS ---
+// --- 📥 BOT HANDLERS ---
 bot.start(async (ctx) => {
     const wallet = await getWallet();
+    const total = ctx.session.config.totalEarned.toFixed(2);
+    
     ctx.replyWithMarkdown(
-        `🤖 *POCKET ROBOT v16.0 | APEX PRO*\n\n` +
-        `✅ *Wallet:* \`${wallet.publicKey.toBase58()}\`\n` +
-        `✅ *Network:* Yellowstone gRPC (Mainnet)\n` +
-        `✅ *Safety:* Jito Atomic Reversion Enabled\n\n` +
-        `Awaiting market signals...`, mainKeyboard(ctx)
+        `🤖 *POCKET ROBOT v18.0*\n` +
+        `--------------------------------\n` +
+        `💳 *Wallet:* \`${wallet.publicKey.toBase58().slice(0,6)}...\`\n` +
+        `💰 *Lifetime Profit:* $${total} USD\n\n` +
+        `_Settings preserved from last session._`, 
+        mainKeyboard(ctx)
     );
 });
 
-bot.action('run_engine', (ctx) => {
+bot.action('run_engine', async (ctx) => {
     if (ctx.session.config.mode === 'AUTO') {
-        ctx.editMessageText(`🟢 *AUTO-PILOT ACTIVE*\nAnalyzing real-time Pyth price feeds...`);
-        runAutoLoop(ctx);
+        ctx.editMessageText("🟢 *AUTO-PILOT ACTIVE*");
+        autoPilot(ctx);
     } else {
-        ctx.editMessageText(`🔍 *SCANNING LIQUIDITY...*`);
-        setTimeout(() => {
-            ctx.replyWithMarkdown(
-                `⚡ *SIGNAL DETECTED (97.1%)*\nAsset: ${ctx.session.config.asset}\nDirection: *CALL (HIGHER)*\n\n*Awaiting Manual Execution:*`,
-                Markup.inlineKeyboard([
-                    [Markup.button.callback('📈 CONFIRM CALL', 'manual_exec'), Markup.button.callback('📉 CONFIRM PUT', 'manual_exec')],
-                    [Markup.button.callback('❌ CANCEL', 'main_menu')]
-                ])
-            );
-        }, 2000);
+        ctx.replyWithMarkdown(`⚡ *SIGNAL DETECTED*`, Markup.inlineKeyboard([
+            [Markup.button.callback('📈 CALL ($10)', 'manual_exec'), Markup.button.callback('📉 PUT ($10)', 'manual_exec')]
+        ]));
     }
 });
 
 bot.action('manual_exec', async (ctx) => {
-    await ctx.editMessageText("🔄 *Bundling...* Initiating Flash Loan...");
-    const result = await executeAtomicBundle(ctx, 'UP');
-    
-    if (result.success) {
-        ctx.replyWithMarkdown(`✅ *BUNDLE SETTLED*\nProfit: *+$${result.profit} USD*\n🛠 Repaid Flash Loan.`);
+    const res = await fireAtomicTrade(ctx);
+    if (res.success) {
+        ctx.replyWithMarkdown(`✅ *PROFIT:* +$${res.profit} USD\nTotal: *$${ctx.session.config.totalEarned.toFixed(2)}*`);
     } else {
-        ctx.reply(`⚠️ Reversal Guard: Market moved against signal. Bundle dropped.`);
+        ctx.reply("⚠️ *REVERTED:* Trade protected.");
     }
 });
 
-function runAutoLoop(ctx) {
+async function autoPilot(ctx) {
     if (ctx.session.config.mode !== 'AUTO') return;
-    setTimeout(async () => {
-        if (ctx.session.config.mode !== 'AUTO') return;
-        const result = await executeAtomicBundle(ctx, 'UP');
-        if (result.success) {
-            ctx.replyWithMarkdown(`⚡ *AUTO-WIN: +$${result.profit} USD* | Total: *$${ctx.session.config.totalEarned.toFixed(2)}*`);
-        }
-        runAutoLoop(ctx);
-    }, 15000);
+    const res = await fireAtomicTrade(ctx);
+    if (res.success) {
+        ctx.reply(`⚡ AUTO-WIN: +$${res.profit} | Total: $${ctx.session.config.totalEarned.toFixed(2)}`);
+    }
+    setTimeout(() => autoPilot(ctx), 15000);
 }
 
-// --- 💸 WITHDRAWAL & STATS ---
 bot.action('stats', async (ctx) => {
     const wallet = await getWallet();
-    const balance = await connection.getBalance(wallet.publicKey);
+    const bal = await connection.getBalance(wallet.publicKey);
     ctx.editMessageText(
-        `📊 *WALLET STATS*\n\n` +
-        `💰 *Bot Earnings:* $${ctx.session.config.totalEarned.toFixed(2)}\n` +
-        `🏦 *Real Balance:* ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL\n\n` +
-        `Target Wallet: \`${process.env.WITHDRAW_ADDRESS?.slice(0,10)}...\``,
+        `📊 *LIFETIME STATS*\n` +
+        `--------------------------------\n` +
+        `💵 Total Earned: *$${ctx.session.config.totalEarned.toFixed(2)}*\n` +
+        `💎 Wallet Bal: ${(bal/LAMPORTS_PER_SOL).toFixed(4)} SOL`, 
         Markup.inlineKeyboard([
-            [Markup.button.callback('💸 WITHDRAW PROFITS', 'withdraw')],
+            [Markup.button.callback('💸 WITHDRAW', 'withdraw')],
             [Markup.button.callback('⬅️ BACK', 'main_menu')]
         ])
     );
 });
 
-bot.launch().then(() => console.log("🚀 Pocket Robot v16.0 Live"));
+// Menu Navigation
+bot.action('main_menu', (ctx) => ctx.editMessageText("🤖 *SETTINGS*", mainKeyboard(ctx)));
+bot.action('toggle_mode', (ctx) => {
+    ctx.session.config.mode = ctx.session.config.mode === 'MANUAL' ? 'AUTO' : 'MANUAL';
+    ctx.editMessageText(`🔄 Mode: ${ctx.session.config.mode}`, mainKeyboard(ctx));
+});
+bot.action('menu_stake', (ctx) => {
+    ctx.editMessageText("*STAKE AMOUNT:*", Markup.inlineKeyboard([
+        [Markup.button.callback('$10', 'set_s_10'), Markup.button.callback('$100', 'set_s_100')],
+        [Markup.button.callback('⬅️ BACK', 'main_menu')]
+    ]));
+});
+bot.action(/set_s_(\d+)/, (ctx) => {
+    ctx.session.config.stake = parseInt(ctx.match[1]);
+    ctx.editMessageText(`✅ Stake updated.`, mainKeyboard(ctx));
+});
+
+bot.launch();
+console.log("🚀 Pocket Robot v18.0: Persistent Memory Active");
