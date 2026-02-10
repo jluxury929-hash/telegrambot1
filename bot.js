@@ -49,31 +49,26 @@ async function fireAtomicTrade(ctx, direction) {
     const { stake } = ctx.session.config;
 
     try {
-        // 1. Fetch Fresh Blockhash & Jito Tip Account
         const [{ blockhash }, tipRes] = await Promise.all([
             connection.getLatestBlockhash('confirmed'),
             axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "getTipAccounts", params: [] })
         ]);
         const tipAccount = new PublicKey(tipRes.data.result[0]);
 
-        // 2. Define Atomic Instructions
-        const side = direction === 'CALL' ? 0 : 1;
+        const side = direction === 'HIGHER' ? 0 : 1;
         const instructions = [
-            // Instruction 1: The Binary Bet
             new TransactionInstruction({
                 programId: THALES_PROGRAM_ID,
                 keys: [{ pubkey: wallet.publicKey, isSigner: true, isWritable: true }],
                 data: Buffer.concat([Buffer.from([side]), new anchor.BN(stake * 1000000).toBuffer('le', 8)])
             }),
-            // Instruction 2: The Jito Tip (Only executed if Instruction 1 succeeds)
             SystemProgram.transfer({
                 fromPubkey: wallet.publicKey,
                 toPubkey: tipAccount,
-                lamports: 100000 // Priority Tip
+                lamports: 100000 
             })
         ];
 
-        // 3. Compile into a Versioned V0 Message
         const messageV0 = new TransactionMessage({
             payerKey: wallet.publicKey,
             recentBlockhash: blockhash,
@@ -83,11 +78,9 @@ async function fireAtomicTrade(ctx, direction) {
         const transaction = new VersionedTransaction(messageV0);
         transaction.sign([wallet]);
 
-        // 🛡️ THE ATOMIC SHIELD: Simulation
         const simulation = await connection.simulateTransaction(transaction);
         if (simulation.value.err) throw new Error("REVERT_PREVENTED");
 
-        // 4. Send via Jito Bundle Engine (Base64 Encoded)
         const rawTx = Buffer.from(transaction.serialize()).toString('base64');
         const jitoRes = await axios.post(JITO_ENGINE, {
             jsonrpc: "2.0", id: 1, method: "sendBundle",
@@ -105,7 +98,7 @@ async function fireAtomicTrade(ctx, direction) {
 // --- 🤖 FIXED AUTO-PILOT ---
 async function autoLoop(ctx) {
     if (ctx.session.config.mode !== 'AUTO') return;
-    const signal = Math.random() > 0.5 ? 'CALL' : 'PUT';
+    const signal = Math.random() > 0.5 ? 'HIGHER' : 'LOWER';
     const res = await fireAtomicTrade(ctx, signal);
     if (res.success) {
         ctx.reply(`⚡ AUTO-WIN (${signal}): +$${res.payout} | Bundle: ${res.bundleId.slice(0,8)}`);
@@ -116,7 +109,7 @@ async function autoLoop(ctx) {
 // --- 📥 HANDLERS ---
 bot.start(async (ctx) => {
     const wallet = await getWallet();
-    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v51.0*\n📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
+    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v54.0*\n📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
 });
 
 bot.action('run_engine', async (ctx) => {
@@ -124,11 +117,15 @@ bot.action('run_engine', async (ctx) => {
         ctx.editMessageText("🟢 *AUTO-PILOT ACTIVE*");
         autoLoop(ctx);
     } else {
-        const signal = Math.random() > 0.5 ? 'CALL' : 'PUT';
-        ctx.replyWithMarkdown(`⚡ *SIGNAL:* Go *${signal}*`, Markup.inlineKeyboard([
-            [Markup.button.callback(`📈 HIGHER`, 'exec_CALL'), Markup.button.callback(`📉 LOWER`, 'exec_PUT')],
-            [Markup.button.callback('❌ CANCEL', 'main_menu')]
-        ]));
+        const signal = Math.random() > 0.5 ? 'HIGHER' : 'LOWER';
+        // --- UPDATED: EXPLICIT PREDICTION TEXT ---
+        ctx.replyWithMarkdown(
+            `⚡ *SIGNAL DETECTED*\n\n🎯 *PREDICTION: GO ${signal}*\n\n_Confirm your position below:_`, 
+            Markup.inlineKeyboard([
+                [Markup.button.callback(`📈 HIGHER`, 'exec_CALL'), Markup.button.callback(`📉 LOWER`, 'exec_PUT')],
+                [Markup.button.callback('❌ CANCEL', 'main_menu')]
+            ])
+        );
     }
 });
 
@@ -143,7 +140,7 @@ bot.action(/exec_(CALL|PUT)/, async (ctx) => {
     }
 });
 
-// Stats, Withdrawal, and Menu logic stay identical to your v33.0 base...
+// Stats, Withdrawal, and Menu logic
 bot.action('stats', async (ctx) => {
     const wallet = await getWallet();
     const bal = await connection.getBalance(wallet.publicKey);
@@ -152,13 +149,15 @@ bot.action('stats', async (ctx) => {
 });
 
 bot.action('withdraw', async (ctx) => {
-    const wallet = await getWallet();
-    const bal = await connection.getBalance(wallet.publicKey);
-    const tx = new Transaction().add(SystemProgram.transfer({
-        fromPubkey: wallet.publicKey, toPubkey: new PublicKey(process.env.WITHDRAW_ADDRESS), lamports: bal - 10000
-    }));
-    const sig = await connection.sendTransaction(tx, [wallet]);
-    ctx.reply(`💸 Sent! Signature: ${sig.slice(0,8)}...`);
+    try {
+        const wallet = await getWallet();
+        const bal = await connection.getBalance(wallet.publicKey);
+        const tx = new Transaction().add(SystemProgram.transfer({
+            fromPubkey: wallet.publicKey, toPubkey: new PublicKey(process.env.WITHDRAW_ADDRESS), lamports: bal - 10000
+        }));
+        const sig = await connection.sendTransaction(tx, [wallet]);
+        ctx.reply(`💸 Sent! Signature: ${sig.slice(0,8)}...`);
+    } catch (e) { ctx.reply("Withdrawal failed."); }
 });
 
 bot.action('main_menu', (ctx) => ctx.editMessageText("🤖 *SETTINGS*", mainKeyboard(ctx)));
