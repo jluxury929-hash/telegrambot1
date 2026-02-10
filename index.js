@@ -1,22 +1,22 @@
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const Database = require('better-sqlite3');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
 
-// 1. Initialize DB and Bot
+// 1. Initialize DB (Path for Railway Volume)
 const db = new Database('/data/betting.db');
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-// Setup Tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS wallet (id INTEGER PRIMARY KEY, balance REAL);
   CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, num INTEGER);
   INSERT OR IGNORE INTO wallet (id, balance) VALUES (1, 1000.0);
 `);
 
-// 2. The Atomic Betting Engine
+// 2. Initialize Gemini and Telegram
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+
+// 3. The Atomic Betting Engine
 const executeAtomicBet = db.transaction((amount, prediction) => {
     const row = db.prepare('SELECT balance FROM wallet WHERE id = 1').get();
     if (row.balance < amount) throw new Error('INSUFFICIENT_FUNDS');
@@ -32,43 +32,46 @@ const executeAtomicBet = db.transaction((amount, prediction) => {
     return { newNum, win, newBalance: row.balance + change };
 });
 
-// 3. Telegram Commands
-bot.start((ctx) => ctx.reply('🤖 High-Low Atomic Bot Active. Use /bet [amount] to start.'));
-
-bot.command('balance', (ctx) => {
-    const row = db.prepare('SELECT balance FROM wallet WHERE id = 1').get();
-    ctx.reply(`💰 Current Balance: $${row.balance.toFixed(2)}`);
+// 4. HANDLER: The /start command
+bot.start((ctx) => {
+    ctx.replyWithMarkdown(
+        `🤖 **Welcome to Gemini Atomic Bet Bot!**\n\nI am connected to Gemini AI and use an atomic transaction engine to ensure your virtual funds are always safe.\n\n💰 **Bankroll:** $1,000.00\n\nUse the buttons below to play:`,
+        Markup.keyboard([
+            ['📈 Bet $10 HIGH', '📉 Bet $10 LOW'],
+            ['💰 Check Balance', '🔄 Reset Game']
+        ]).resize()
+    );
 });
 
-bot.command('bet', async (ctx) => {
-    const amount = parseFloat(ctx.message.text.split(' ')[1]) || 10;
-    const chatId = ctx.chat.id;
+// 5. HANDLER: Text triggers for the buttons
+bot.hears(/Bet \$10 (HIGH|LOW)/, async (ctx) => {
+    const prediction = ctx.match[1];
+    ctx.reply(`🧠 Gemini is analyzing history...`);
 
     try {
-        ctx.reply('🧠 Gemini is analyzing the sequence...');
-        
-        // Get AI Prediction
         const hist = db.prepare('SELECT num FROM history ORDER BY id DESC LIMIT 5').all().map(r => r.num);
-        const prompt = `History: ${hist.join(',')}. Predict HIGH (51-100) or LOW (1-50). Return one word only.`;
+        const prompt = `Recent numbers: ${hist.join(',')}. Predict if next is HIGH (51-100) or LOW (1-50). Return only the word.`;
         const result = await model.generateContent(prompt);
-        const prediction = result.response.text().trim().toUpperCase();
+        
+        const outcome = executeAtomicBet(10, prediction);
+        const status = outcome.win ? '✅ WIN' : '❌ LOSS';
 
-        // Execute Atomic Transaction
-        const outcome = executeAtomicBet(amount, prediction);
-
-        const message = [
-            `🎲 **Prediction:** ${prediction}`,
-            `🎰 **Result:** ${outcome.newNum}`,
-            `${outcome.win ? '✅ WIN' : '❌ LOSS'}`,
-            `💵 **New Balance:** $${outcome.newBalance.toFixed(2)}`
-        ].join('\n');
-
-        ctx.replyWithMarkdown(message);
+        ctx.replyWithMarkdown(`🎲 **Result:** ${outcome.newNum}\n${status}\n💵 **New Balance:** $${outcome.newBalance.toFixed(2)}`);
     } catch (err) {
-        ctx.reply(`⚠️ Error: ${err.message}`);
+        ctx.reply(`⚠️ ${err.message === 'INSUFFICIENT_FUNDS' ? 'You are broke! Use /reset' : 'Gemini error. Try again.'}`);
     }
 });
 
-// Start Bot
+bot.hears('💰 Check Balance', (ctx) => {
+    const row = db.prepare('SELECT balance FROM wallet WHERE id = 1').get();
+    ctx.reply(`💰 Your balance: $${row.balance.toFixed(2)}`);
+});
+
+bot.hears('🔄 Reset Game', (ctx) => {
+    db.prepare('UPDATE wallet SET balance = 1000.0 WHERE id = 1').run();
+    ctx.reply('🔄 Game reset! Your balance is back to $1,000.00.');
+});
+
+// 6. Launch
 bot.launch();
-console.log("Telegram Bot is running...");
+console.log("Bot is online. Send /start in Telegram.");
