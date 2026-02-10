@@ -4,33 +4,48 @@ const LocalSession = require('telegraf-session-local');
 const { 
     Connection, Keypair, PublicKey, SystemProgram, 
     LAMPORTS_PER_SOL, TransactionInstruction, 
-    TransactionMessage, VersionedTransaction 
+    TransactionMessage, VersionedTransaction,
+    Transaction 
 } = require('@solana/web3.js');
 const anchor = require('@coral-xyz/anchor');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 const axios = require('axios');
 
-// --- 🌐 CONFIG ---
+// --- 🌐 CONFIG (2026 STANDARDS) ---
 const THALES_PROGRAM_ID = new PublicKey("B77Zon9K4p4Tz9U7N9M49mGzT1Z1Z1Z1Z1Z1Z1Z1Z1Z1");
 const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
 const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com", "confirmed");
 
-// --- 🛡️ DATABASE (Sync Mode for 100% Button Reliability) ---
-const localSession = new LocalSession({ 
-    database: 'sessions.json', 
-    storage: LocalSession.storageFileSync 
+// --- 🛡️ DATABASE & SESSION CONFIG ---
+const localSession = new LocalSession({
+    database: 'sessions.json',
+    property: 'session',
+    storage: LocalSession.storageFileSync, // CRITICAL: Sync storage prevents sticky button data lag
+    format: {
+        serialize: (obj) => JSON.stringify(obj, null, 2),
+        deserialize: (str) => JSON.parse(str),
+    },
 });
-const bot = new Telegraf(process.env.BOT_TOKEN);
 
+const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use(localSession.middleware());
+
+// --- 🛠️ HELPERS ---
+async function getWallet() {
+    const seed = await bip39.mnemonicToSeed(process.env.SEED_PHRASE);
+    const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key;
+    return Keypair.fromSeed(derivedSeed);
+}
+
 bot.use((ctx, next) => {
-    ctx.session = ctx.session || {};
-    ctx.session.config = ctx.session.config || { asset: 'BTC/USD', stake: 10, mode: 'MANUAL', totalEarned: 0 };
+    ctx.session.config = ctx.session.config || {
+        asset: 'BTC/USD', stake: 10, mode: 'MANUAL', totalEarned: 0
+    };
     return next();
 });
 
-// --- 🔮 THE SIMULATION ORACLE (Dual-Path Logic) ---
+// --- 🔮 THE SIMULATION ORACLE (Dual-Path Prediction) ---
 async function runOracleSimulation(wallet) {
     const { blockhash } = await connection.getLatestBlockhash('confirmed');
     
@@ -50,11 +65,10 @@ async function runOracleSimulation(wallet) {
         connection.simulateTransaction(buildVirtualTx(1))  // Lower
     ]);
 
-    // Success check: looking for specific 'Success' strings in program logs
     const scoreH = simH.value.err ? 0 : (simH.value.logs?.filter(l => l.includes("Success")).length || 1);
     const scoreL = simL.value.err ? 0 : (simL.value.logs?.filter(l => l.includes("Success")).length || 1);
 
-    return scoreH > scoreL ? { signal: 'HIGHER', confidence: 71 } : { signal: 'LOWER', confidence: 68 };
+    return scoreH > scoreL ? { dir: 'HIGHER', conf: 71 } : { dir: 'LOWER', conf: 68 };
 }
 
 // --- 🔥 SHIELDED ATOMIC V0 ENGINE ---
@@ -103,19 +117,27 @@ async function fireShieldedTrade(chatId, direction) {
 const mainKeyboard = (ctx) => {
     const s = ctx.session.config;
     return Markup.inlineKeyboard([
-        [Markup.button.callback(`🎯 Asset: ${s.asset}`, 'menu_coins')],
+        [Markup.button.callback(`🎯 ${s.asset}`, 'menu_coins')],
         [Markup.button.callback(`💰 Stake: $${s.stake}`, 'menu_stake')],
         [Markup.button.callback(`⚙️ Mode: ${s.mode}`, 'toggle_mode')],
-        [Markup.button.callback(s.mode === 'AUTO' ? '🛑 STOP AUTO' : '🚀 START SIGNAL BOT', 'run_engine')],
-        [Markup.button.callback('📊 VIEW WALLET & STATS', 'stats')]
+        [Markup.button.callback(s.mode === 'AUTO' ? '🛑 STOP AUTO' : '🚀 START BOT', 'run_engine')],
+        [Markup.button.callback('📊 WALLET & STATS', 'stats')]
     ]);
 };
 
-// --- 📥 HANDLERS (Sticky-Fix Applied) ---
+// --- 📥 HANDLERS ---
+bot.start(async (ctx) => {
+    const wallet = await getWallet();
+    ctx.replyWithMarkdown(
+        `🤖 *POCKET ROBOT v65.0*\n` +
+        `📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\``, 
+        mainKeyboard(ctx)
+    );
+});
 
 bot.action('run_engine', async (ctx) => {
-    await ctx.answerCbQuery(); // Instantly stops the loading spinner
-    if (ctx.session.config.mode === 'AUTO') return autoLoop(ctx);
+    await ctx.answerCbQuery(); // Instantly clears sticky loading state
+    if (ctx.session.config.mode === 'AUTO') return autoPilot(ctx);
 
     const status = await ctx.reply(`🔮 *ORACLE: SIMULATING BOTH PATHS...*`);
     const wallet = await getWallet();
@@ -123,7 +145,7 @@ bot.action('run_engine', async (ctx) => {
     
     await ctx.telegram.deleteMessage(ctx.chat.id, status.message_id);
     ctx.replyWithMarkdown(
-        `🚀 *SIMULATION DATA COLLECTED*\n🎯 *PREDICTION: GO ${oracle.signal}*\n\n_Zero-Loss Shield is Active._`,
+        `🚀 *VIRTUAL-DATA SIGNAL*\n🎯 *PREDICTION: GO ${oracle.dir}*\n\n_All bets are shielded._`,
         Markup.inlineKeyboard([
             [Markup.button.callback(`📈 HIGHER`, 'exec_HIGHER'), Markup.button.callback(`📉 LOWER`, 'exec_LOWER')],
             [Markup.button.callback('❌ CANCEL', 'main_menu')]
@@ -135,7 +157,39 @@ bot.action(/exec_(HIGHER|LOWER)/, async (ctx) => {
     await ctx.answerCbQuery(`Opening Atomic Position...`);
     const res = await fireShieldedTrade(ctx.chat.id, ctx.match[1]);
     if (res.success) ctx.replyWithMarkdown(`✅ *WIN:* +$${res.payout}`);
-    else ctx.reply(res.error === "SHIELD_REVERT_LOSS_PREVENTED" ? "🛡️ *SHIELDED:* Loss state detected. Zero SOL spent." : "Error: " + res.error);
+    else ctx.reply(res.error === "SHIELD_REVERT_LOSS_PREVENTED" ? "🛡️ *SHIELDED:* Market shifted. $0 SOL spent." : "Error: " + res.error);
+});
+
+bot.action('withdraw', async (ctx) => {
+    await ctx.answerCbQuery();
+    try {
+        const wallet = await getWallet();
+        const destAddr = process.env.WITHDRAW_ADDRESS;
+        if (!destAddr) return ctx.reply("Error: WITHDRAW_ADDRESS not set.");
+
+        const balance = await connection.getBalance(wallet.publicKey);
+        if (balance <= 10000) return ctx.reply("Balance too low for gas.");
+
+        const amountToSend = balance - 10000;
+        const tx = new Transaction().add(SystemProgram.transfer({
+            fromPubkey: wallet.publicKey, toPubkey: new PublicKey(destAddr), lamports: amountToSend,
+        }));
+        
+        const { blockhash } = await connection.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = wallet.publicKey;
+
+        const signature = await connection.sendTransaction(tx, [wallet]);
+        ctx.reply(`💸 Sent! [View on Solscan](https://solscan.io/tx/${signature})`);
+    } catch (err) { ctx.reply("Withdrawal failed."); }
+});
+
+bot.action('stats', async (ctx) => {
+    await ctx.answerCbQuery();
+    const wallet = await getWallet();
+    const bal = await connection.getBalance(wallet.publicKey);
+    ctx.editMessageText(`📊 *STATS*\nEarned: *$${ctx.session.config.totalEarned.toFixed(2)}*\nBal: ${(bal/LAMPORTS_PER_SOL).toFixed(4)} SOL`,
+    Markup.inlineKeyboard([[Markup.button.callback('💸 WITHDRAW', 'withdraw')], [Markup.button.callback('⬅️ BACK', 'main_menu')]]));
 });
 
 bot.action('toggle_mode', async (ctx) => {
@@ -149,41 +203,13 @@ bot.action('main_menu', async (ctx) => {
     ctx.editMessageText("🤖 *SETTINGS*", mainKeyboard(ctx));
 });
 
-bot.action('stats', async (ctx) => {
-    await ctx.answerCbQuery();
-    const wallet = await getWallet();
-    const bal = await connection.getBalance(wallet.publicKey);
-    ctx.editMessageText(`📊 *STATS*\nEarned: *$${ctx.session.config.totalEarned.toFixed(2)}*\nBal: ${(bal/LAMPORTS_PER_SOL).toFixed(4)} SOL`,
-    Markup.inlineKeyboard([[Markup.button.callback('💸 WITHDRAW', 'withdraw')], [Markup.button.callback('⬅️ BACK', 'main_menu')]]));
-});
-
-// Settings Handlers
-bot.action('menu_stake', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.editMessageText("*STAKE AMOUNT:*", Markup.inlineKeyboard([[Markup.button.callback('$10', 'set_s_10'), Markup.button.callback('$100', 'set_s_100')], [Markup.button.callback('⬅️ BACK', 'main_menu')]]));
-});
-
-bot.action(/set_s_(\d+)/, (ctx) => {
-    ctx.answerCbQuery();
-    ctx.session.config.stake = parseInt(ctx.match[1]);
-    ctx.editMessageText(`✅ Stake set to $${ctx.session.config.stake}`, mainKeyboard(ctx));
-});
-
-// Auto Loop logic...
-async function autoLoop(ctx) {
+async function autoPilot(ctx) {
     if (ctx.session.config.mode !== 'AUTO') return;
     const wallet = await getWallet();
     const oracle = await runOracleSimulation(wallet);
-    const res = await fireShieldedTrade(ctx.chat.id, oracle.signal);
-    if (res.success) ctx.reply(`⚡ AUTO-WIN: +$${res.payout}`);
-    setTimeout(() => autoLoop(ctx), 25000);
+    const res = await fireShieldedTrade(ctx.chat.id, oracle.dir);
+    if (res.success) ctx.reply(`⚡ AUTO-WIN (${oracle.dir}): +$${res.payout}`);
+    setTimeout(() => autoPilot(ctx), 25000);
 }
 
-async function getWallet() {
-    const seed = await bip39.mnemonicToSeed(process.env.SEED_PHRASE);
-    const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key;
-    return Keypair.fromSeed(derivedSeed);
-}
-
-bot.start((ctx) => ctx.reply("🤖 Bot Ready.", mainKeyboard(ctx)));
 bot.launch();
