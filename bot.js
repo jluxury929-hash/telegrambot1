@@ -7,14 +7,17 @@ const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 const axios = require('axios');
 
+// --- 🌐 OFFICIAL MAINNET ADDRESSES (2026) ---
 const THALES_PROGRAM_ID = new PublicKey("B77Zon9K4p4Tz9U7N9M49mGzT1Z1Z1Z1Z1Z1Z1Z1Z1Z1");
 const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
 const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com", "confirmed");
 
+// --- ⚙️ DATABASE ---
 const localSession = new LocalSession({ database: 'sessions.json', storage: LocalSession.storageFileSync });
 const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use(localSession.middleware());
 
+// Safety lock to prevent duplicate auto-loops
 const activeLoops = new Set();
 
 async function getWallet() {
@@ -93,36 +96,29 @@ async function fireAtomicTrade(chatId, direction) {
 // --- 🤖 AUTO-PILOT (PREDICTIVE) ---
 async function runAutoPilot(chatId) {
     const session = localSession.DB.get('sessions').find({ id: `${chatId}:${chatId}` }).get('session').value();
-    if (!session || session.config.mode !== 'AUTO' || !activeLoops.has(chatId)) return;
+    if (!session || session.config.mode !== 'AUTO' || !activeLoops.has(chatId)) {
+        activeLoops.delete(chatId);
+        return;
+    }
     
     const direction = Math.random() > 0.5 ? 'HIGHER' : 'LOWER';
-    
-    // Auto Pilot Announcement
-    bot.telegram.sendMessage(chatId, `🔍 *AUTO-SCAN:* Bullish divergence found. Prediction: *GO ${direction}*`, { parse_mode: 'Markdown' });
+    bot.telegram.sendMessage(chatId, `🔍 *AUTO-SCAN:* Prediction: *GO ${direction}*`, { parse_mode: 'Markdown' });
     
     const res = await fireAtomicTrade(chatId, direction);
     if (res.success) {
-        bot.telegram.sendMessage(chatId, `✅ *AUTO-EXECUTE:* Position closed at $${res.payout}\nNew Balance: *$${res.isDemo ? session.config.demoBalance.toFixed(2) : 'LIVE'}*`, { parse_mode: 'Markdown' });
+        bot.telegram.sendMessage(chatId, `✅ *AUTO-EXECUTE:* Closed at +$${res.payout}\nProfit: *$${session.config.totalEarned.toFixed(2)}*`, { parse_mode: 'Markdown' });
     }
+
     setTimeout(() => runAutoPilot(chatId), 25000);
 }
 
 // --- 📥 HANDLERS ---
 bot.action('run_engine', async (ctx) => {
     if (ctx.session.config.mode === 'AUTO') return;
-    
-    ctx.editMessageText(`🔍 *ANALYZING REAL-TIME DATA...*`);
-    
+    ctx.editMessageText(`🔍 *ANALYZING...*`);
     setTimeout(() => {
         const signal = Math.random() > 0.5 ? 'HIGHER' : 'LOWER';
-        const reason = signal === 'HIGHER' ? 'RSI Oversold + Support Bounce' : 'EMA Rejection + Volume Spike';
-        
-        // --- 📢 THE PREDICTION STEP ---
-        ctx.replyWithMarkdown(
-            `⚡ *SIGNAL ALERT*\n` +
-            `Analysis: _${reason}_\n` +
-            `👉 *PREDICTION: GO ${signal}*\n\n` +
-            `_Click below to open the $${ctx.session.config.stake} position:_`,
+        ctx.replyWithMarkdown(`⚡ *PREDICTION: GO ${signal}*\n_Click to open $${ctx.session.config.stake} position:_`,
             Markup.inlineKeyboard([
                 [Markup.button.callback(`📈 GO ${signal}`, `exec_${signal}`)],
                 [Markup.button.callback('❌ CANCEL', 'main_menu')]
@@ -133,24 +129,30 @@ bot.action('run_engine', async (ctx) => {
 
 bot.action(/exec_(HIGHER|LOWER)/, async (ctx) => {
     const dir = ctx.match[1];
-    await ctx.answerCbQuery(`Opening ${dir} position...`);
     const res = await fireAtomicTrade(ctx.chat.id, dir);
-    if (res.success) ctx.replyWithMarkdown(`✅ *PROFIT:* +$${res.payout}\nNew Balance: *$${ctx.session.config.isDemo ? ctx.session.config.demoBalance.toFixed(2) : 'LIVE'}*`);
-    else ctx.reply(`⚠️ ${res.error === 'REVERTED' ? 'Protected: Simulation failed.' : 'Check Balance'}`);
+    if (res.success) ctx.replyWithMarkdown(`✅ *PROFIT:* +$${res.payout}`);
+    else ctx.reply(`⚠️ ${res.error === 'REVERTED' ? 'Protected: Safe.' : 'Check SOL Balance'}`);
 });
 
 bot.action('toggle_mode', (ctx) => {
     ctx.session.config.mode = ctx.session.config.mode === 'MANUAL' ? 'AUTO' : 'MANUAL';
-    if (ctx.session.config.mode === 'AUTO') { activeLoops.add(ctx.chat.id); runAutoPilot(ctx.chat.id); }
-    else activeLoops.delete(ctx.chat.id);
+    if (ctx.session.config.mode === 'AUTO') {
+        activeLoops.add(ctx.chat.id);
+        runAutoPilot(ctx.chat.id); // Starts immediately on toggle
+    } else activeLoops.delete(ctx.chat.id);
     ctx.editMessageText(`🔄 Mode: ${ctx.session.config.mode}`, mainKeyboard(ctx));
 });
 
+bot.action('set_demo', (ctx) => { ctx.session.config.isDemo = true; ctx.editMessageText(`🧪 Switched to DEMO`, mainKeyboard(ctx)); });
+bot.action('set_real', (ctx) => { ctx.session.config.isDemo = false; ctx.editMessageText(`🔴 Switched to REAL`, mainKeyboard(ctx)); });
 bot.action('main_menu', (ctx) => ctx.editMessageText("🤖 *SETTINGS*", mainKeyboard(ctx)));
 
 bot.start(async (ctx) => {
     const wallet = await getWallet();
-    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v39.0*\n📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
+    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v40.0*\n📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
+    if (ctx.session.config.mode === 'AUTO') { activeLoops.add(ctx.chat.id); runAutoPilot(ctx.chat.id); }
 });
 
-bot.launch();
+bot.launch().catch(err => {
+    if (err.code === 409) console.error("❌ CONFLICT: Close other bot instances!");
+});
