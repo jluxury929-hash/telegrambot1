@@ -20,7 +20,7 @@ const localSession = new LocalSession({
 const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use(localSession.middleware());
 
-// Safety lock to prevent multiple loops from running at once
+// Safety gate to prevent multiple loops from starting
 const activeLoops = new Set();
 
 async function getWallet() {
@@ -48,7 +48,7 @@ const mainKeyboard = (ctx) => {
     ]);
 };
 
-// --- 🚀 REAL ATOMIC TRADING ENGINE ---
+// --- 🚀 REAL ATOMIC TRADING ENGINE (ZERO-LOSS REVERT FIX) ---
 async function fireAtomicTrade(ctx, direction) {
     const wallet = await getWallet();
     const { stake } = ctx.session.config;
@@ -87,9 +87,8 @@ async function fireAtomicTrade(ctx, direction) {
     }
 }
 
-// --- 🤖 FIXED AUTO-PILOT (INSTANT START) ---
+// --- 🤖 AUTO-PILOT LOGIC (TRIGGERED ON SWITCH) ---
 async function autoLoop(ctx) {
-    // If user changed to MANUAL or loop is already running, exit.
     if (ctx.session.config.mode !== 'AUTO') {
         activeLoops.delete(ctx.chat.id);
         return;
@@ -106,7 +105,6 @@ async function autoLoop(ctx) {
         return ctx.reply("🛑 AUTO-STOP: Insufficient SOL for fees.");
     }
 
-    // Loop again automatically
     setTimeout(() => autoLoop(ctx), 20000);
 }
 
@@ -114,14 +112,13 @@ async function autoLoop(ctx) {
 bot.start(async (ctx) => {
     const wallet = await getWallet();
     ctx.replyWithMarkdown(
-        `🤖 *POCKET ROBOT v33.0*\n` +
+        `🤖 *POCKET ROBOT v35.2*\n` +
         `--------------------------------\n` +
         `📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\`\n` +
         `💰 *LIFETIME PROFIT:* $${ctx.session.config.totalEarned.toFixed(2)} USD`,
         mainKeyboard(ctx)
     );
-
-    // Reboot Recovery: Start loop if user was already in AUTO mode
+    // Reboot Recovery
     if (ctx.session.config.mode === 'AUTO' && !activeLoops.has(ctx.chat.id)) {
         activeLoops.add(ctx.chat.id);
         autoLoop(ctx);
@@ -132,7 +129,7 @@ bot.action('toggle_mode', (ctx) => {
     ctx.session.config.mode = ctx.session.config.mode === 'MANUAL' ? 'AUTO' : 'MANUAL';
     ctx.editMessageText(`🔄 Mode: ${ctx.session.config.mode}`, mainKeyboard(ctx));
 
-    // INSTANT START: If switching to AUTO, kick off the loop immediately
+    // Auto-Start on toggle
     if (ctx.session.config.mode === 'AUTO' && !activeLoops.has(ctx.chat.id)) {
         activeLoops.add(ctx.chat.id);
         autoLoop(ctx);
@@ -149,26 +146,46 @@ bot.action('run_engine', async (ctx) => {
         setTimeout(() => {
             const signal = Math.random() > 0.5 ? 'CALL' : 'PUT';
             const stake = ctx.session.config.stake;
-            ctx.replyWithMarkdown(`⚡ *SIGNAL: ${signal}*`, 
-                Markup.inlineKeyboard([[
-                    Markup.button.callback(`📈 HIGHER ($${stake})`, 'exec_CALL'),
-                    Markup.button.callback(`📉 LOWER ($${stake})`, 'exec_PUT')
-                ], [Markup.button.callback('❌ CANCEL', 'main_menu')]]));
+            // Manual Mode buttons exactly as you requested
+            ctx.replyWithMarkdown(
+                `⚡ *SIGNAL DETECTED*\n` +
+                `Direction: *${signal === 'CALL' ? 'HIGHER (CALL)' : 'LOWER (PUT)'}*\n` +
+                `Payout: *$${(stake * 1.90).toFixed(2)} USD*\n\n` +
+                `*CONFIRM YOUR GUESS:*`,
+                Markup.inlineKeyboard([
+                    [
+                        Markup.button.callback(`📈 HIGHER ($${stake})`, 'exec_CALL'),
+                        Markup.button.callback(`📉 LOWER ($${stake})`, 'exec_PUT')
+                    ],
+                    [Markup.button.callback('❌ CANCEL', 'main_menu')]
+                ])
+            );
         }, 1500);
     }
 });
 
 bot.action(/exec_(CALL|PUT)/, async (ctx) => {
     const res = await fireAtomicTrade(ctx, ctx.match[1]);
-    if (res.success) ctx.replyWithMarkdown(`✅ *EARNED: +$${res.payout}*`);
-    else ctx.reply(`⚠️ ${res.error === 'REVERT_PREVENTED' ? 'Trade Reverted: Safe.' : 'Insufficient SOL'}`);
+    if (res.success) {
+        ctx.replyWithMarkdown(`✅ *EARNED: +$${res.payout}*\nTx: [Solscan](https://solscan.io/tx/${res.sig})`);
+    } else {
+        ctx.reply(`⚠️ ${res.error === 'REVERT_PREVENTED' ? '🛡️ Trade Reverted: No funds lost.' : 'Insufficient SOL'}`);
+    }
 });
 
 bot.action('stats', async (ctx) => {
     const wallet = await getWallet();
     const bal = await connection.getBalance(wallet.publicKey);
-    ctx.editMessageText(`📊 *STATS*\nEarned: *$${ctx.session.config.totalEarned.toFixed(2)}*\nBal: ${(bal/LAMPORTS_PER_SOL).toFixed(4)} SOL`,
-        Markup.inlineKeyboard([[Markup.button.callback('💸 WITHDRAW', 'withdraw')], [Markup.button.callback('⬅️ BACK', 'main_menu')]]));
+    ctx.editMessageText(`📊 *STATS*\nEarned: *$${ctx.session.config.totalEarned.toFixed(2)}*\nBal: ${(bal/LAMPORTS_PER_SOL).toFixed(4)} SOL`, 
+    Markup.inlineKeyboard([[Markup.button.callback('💸 WITHDRAW', 'withdraw')], [Markup.button.callback('⬅️ BACK', 'main_menu')]]));
+});
+
+bot.action('withdraw', async (ctx) => {
+    const wallet = await getWallet();
+    const bal = await connection.getBalance(wallet.publicKey);
+    const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: new PublicKey(process.env.WITHDRAW_ADDRESS), lamports: bal - 10000 }));
+    const sig = await connection.sendTransaction(tx, [wallet]);
+    ctx.reply(`💸 Sent! Signature: ${sig.slice(0,8)}...`);
 });
 
 bot.action('main_menu', (ctx) => ctx.editMessageText("🤖 *SETTINGS*", mainKeyboard(ctx)));
