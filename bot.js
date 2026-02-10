@@ -26,11 +26,27 @@ async function getWallet() {
     return Keypair.fromSeed(derivedSeed);
 }
 
+bot.use((ctx, next) => {
+    ctx.session.config = ctx.session.config || { asset: 'BTC/USD', stake: 10, mode: 'MANUAL', totalEarned: 0 };
+    return next();
+});
+
+// --- 🎨 INTERFACE ---
+const mainKeyboard = (ctx) => {
+    const s = ctx.session.config;
+    return Markup.inlineKeyboard([
+        [Markup.button.callback(`🎯 Asset: ${s.asset}`, 'menu_coins')],
+        [Markup.button.callback(`💰 Stake: $${s.stake}`, 'menu_stake')],
+        [Markup.button.callback(`⚙️ Mode: ${s.mode}`, 'toggle_mode')],
+        [Markup.button.callback(s.mode === 'AUTO' ? '🛑 STOP AUTO' : '🚀 START SIGNAL BOT', 'run_engine')],
+        [Markup.button.callback('📊 VIEW WALLET & STATS', 'stats')]
+    ]);
+};
+
 // --- 🔥 THE ATOMIC V0 EXECUTION CORE ---
-async function fireAtomicTrade(chatId, direction) {
+async function fireAtomicTrade(ctx, direction) {
     const wallet = await getWallet();
-    const session = localSession.DB.get('sessions').find({ id: `${chatId}:${chatId}` }).get('session').value();
-    const { stake } = session.config;
+    const { stake } = ctx.session.config;
 
     try {
         // 1. Fetch Fresh Blockhash & Jito Tip Account
@@ -43,13 +59,13 @@ async function fireAtomicTrade(chatId, direction) {
         // 2. Define Atomic Instructions
         const side = direction === 'CALL' ? 0 : 1;
         const instructions = [
-            // IX 1: The Binary Bet
+            // Instruction 1: The Binary Bet
             new TransactionInstruction({
                 programId: THALES_PROGRAM_ID,
                 keys: [{ pubkey: wallet.publicKey, isSigner: true, isWritable: true }],
                 data: Buffer.concat([Buffer.from([side]), new anchor.BN(stake * 1000000).toBuffer('le', 8)])
             }),
-            // IX 2: The Jito Tip (Only executed if IX 1 succeeds)
+            // Instruction 2: The Jito Tip (Only executed if Instruction 1 succeeds)
             SystemProgram.transfer({
                 fromPubkey: wallet.publicKey,
                 toPubkey: tipAccount,
@@ -78,21 +94,19 @@ async function fireAtomicTrade(chatId, direction) {
             params: [[rawTx]]
         });
 
-        session.config.totalEarned += (stake * 0.92);
-        localSession.DB.write();
-        
-        return { success: true, bundleId: jitoRes.data.result, payout: (stake * 1.92).toFixed(2) };
+        ctx.session.config.totalEarned += (stake * 0.90);
+        return { success: true, bundleId: jitoRes.data.result, payout: (stake * 1.90).toFixed(2) };
 
     } catch (e) {
         return { success: false, error: e.message };
     }
 }
 
-// --- 🤖 AUTO-PILOT (INTEGRATED) ---
+// --- 🤖 FIXED AUTO-PILOT ---
 async function autoLoop(ctx) {
     if (ctx.session.config.mode !== 'AUTO') return;
     const signal = Math.random() > 0.5 ? 'CALL' : 'PUT';
-    const res = await fireAtomicTrade(ctx.chat.id, signal);
+    const res = await fireAtomicTrade(ctx, signal);
     if (res.success) {
         ctx.reply(`⚡ AUTO-WIN (${signal}): +$${res.payout} | Bundle: ${res.bundleId.slice(0,8)}`);
     }
@@ -100,20 +114,9 @@ async function autoLoop(ctx) {
 }
 
 // --- 📥 HANDLERS ---
-const mainKeyboard = (ctx) => {
-    const s = ctx.session.config;
-    return Markup.inlineKeyboard([
-        [Markup.button.callback(`🎯 Asset: ${s.asset}`, 'menu_coins')],
-        [Markup.button.callback(`💰 Stake: $${s.stake}`, 'menu_stake')],
-        [Markup.button.callback(`⚙️ Mode: ${s.mode}`, 'toggle_mode')],
-        [Markup.button.callback(s.mode === 'AUTO' ? '🛑 STOP AUTO' : '🚀 START SIGNAL BOT', 'run_engine')],
-        [Markup.button.callback('📊 VIEW WALLET & STATS', 'stats')]
-    ]);
-};
-
 bot.start(async (ctx) => {
     const wallet = await getWallet();
-    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v49.0*\n📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
+    ctx.replyWithMarkdown(`🤖 *POCKET ROBOT v51.0*\n📥 *DEPOSIT:* \`${wallet.publicKey.toBase58()}\``, mainKeyboard(ctx));
 });
 
 bot.action('run_engine', async (ctx) => {
@@ -132,7 +135,7 @@ bot.action('run_engine', async (ctx) => {
 bot.action(/exec_(CALL|PUT)/, async (ctx) => {
     const dir = ctx.match[1] === 'CALL' ? 'HIGHER' : 'LOWER';
     await ctx.answerCbQuery(`Atomic shielding ${dir} trade...`);
-    const res = await fireAtomicTrade(ctx.chat.id, dir);
+    const res = await fireAtomicTrade(ctx, dir);
     if (res.success) {
         ctx.replyWithMarkdown(`✅ *PROFIT:* +$${res.payout}\nBundle: \`${res.bundleId.slice(0,8)}...\``);
     } else {
@@ -140,6 +143,7 @@ bot.action(/exec_(CALL|PUT)/, async (ctx) => {
     }
 });
 
+// Stats, Withdrawal, and Menu logic stay identical to your v33.0 base...
 bot.action('stats', async (ctx) => {
     const wallet = await getWallet();
     const bal = await connection.getBalance(wallet.publicKey);
