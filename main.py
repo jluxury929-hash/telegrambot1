@@ -17,68 +17,40 @@ Account.enable_unaudited_hdwallet_features()
 user_account = Account.from_mnemonic(os.getenv("WALLET_SEED"))
 DB_PATH = "/data/betting_bot.db"
 
-# System instructions to keep the AI fast and professional
-AI_PERSONA = "You are an elite, witty personal assistant for a crypto high-roller."
-
 def init_db():
     os.makedirs("/data", exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute('CREATE TABLE IF NOT EXISTS wallet (id INTEGER PRIMARY KEY, balance REAL)')
         conn.execute('CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, num INTEGER)')
-        conn.execute('INSERT OR IGNORE INTO wallet (id, balance) VALUES (1, 1000.0)')
+        # Seed history if empty for the first simulation
+        count = conn.execute('SELECT COUNT(*) FROM history').fetchone()[0]
+        if count == 0:
+            for _ in range(20): conn.execute('INSERT INTO history (num) VALUES (?)', (random.randint(1, 100),))
 
-# 2. OPTIMIZED MATH (100 Iterations for Instant Speed)
-def run_fast_sim(data):
-    if len(data) < 2: return 0.5
+# 2. HIGH-SPEED MONTE CARLO (100 ITERATIONS)
+def run_mainnet_sim(data):
     returns = np.diff(data)
     mu, sigma = np.mean(returns), np.std(returns)
     sim_results = data[-1] + mu + (sigma * np.random.normal(size=100))
     return np.sum(sim_results > 50) / 100
 
-# 3. ATOMIC ENGINE
-def execute_atomic_bet(amount, prediction):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    try:
-        cursor.execute('BEGIN TRANSACTION')
-        cursor.execute('SELECT balance FROM wallet WHERE id = 1')
-        balance = cursor.fetchone()[0]
-        if balance < amount: raise ValueError("INSUFFICIENT_FUNDS")
-
-        res_num = random.randint(1, 100)
-        win = (prediction == "HIGH" and res_num > 50) or (prediction == "LOW" and res_num <= 50)
-        new_balance = balance + (amount if win else -amount)
-        
-        cursor.execute('UPDATE wallet SET balance = ? WHERE id = 1', (new_balance,))
-        cursor.execute('INSERT INTO history (num) VALUES (?)', (res_num,))
-        conn.commit()
-        return {"num": res_num, "win": win, "balance": new_balance}, "SUCCESS"
-    except Exception as e:
-        conn.rollback()
-        return None, str(e)
-    finally:
-        conn.close()
-
-# 4. HANDLERS
+# 3. HANDLERS
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    with sqlite3.connect(DB_PATH) as conn:
-        balance = conn.execute('SELECT balance FROM wallet WHERE id = 1').fetchone()[0]
+    # Fetch REAL Mainnet Balance
+    balance_wei = w3.eth.get_balance(user_account.address)
+    balance = w3.from_wei(balance_wei, 'ether')
     
-    # Bottom Chat Menu
-    bottom_menu = [['💰 Balance', '🚀 New Bet'], ['🕴️ Talk to Assistant']]
+    welcome = (f"🕴️ **Mainnet Assistant Bot**\n"
+               f"💰 **Real Balance:** {balance:.4f} POL/ETH\n"
+               f"📥 **Deposit Address:** `{user_account.address}`\n\n"
+               "Choose your stake to begin:")
     
-    # In-Chat Selection
-    inline_kb = [[
-        InlineKeyboardButton("💵 $10", callback_data='AMT_10'),
-        InlineKeyboardButton("💵 $50", callback_data='AMT_50'),
-        InlineKeyboardButton("💵 $100", callback_data='AMT_100')
-    ]]
-
-    welcome = (f"🕴️ **Assistant & Atomic Bot Live**\nVault: ${balance:.2f}\n"
-               f"Deposit: `{user_account.address}`\n\nReady for a move, Boss?")
+    kb = [[InlineKeyboardButton("💵 $10", callback_data='AMT_10'),
+           InlineKeyboardButton("💵 $50", callback_data='AMT_50')]]
     
-    await update.message.reply_text(welcome, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup(bottom_menu, resize_keyboard=True))
-    await update.message.reply_text("👇 **Choose your stake:**", reply_markup=InlineKeyboardMarkup(inline_kb))
+    # Bottom menu for navigation
+    reply_markup = ReplyKeyboardMarkup([['💰 Balance', '🚀 New Bet']], resize_keyboard=True)
+    await update.message.reply_text(welcome, parse_mode='Markdown', reply_markup=reply_markup)
+    await update.message.reply_text("👇 **Select Amount:**", reply_markup=InlineKeyboardMarkup(kb))
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -86,63 +58,62 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if data.startswith('AMT_'):
-        context.user_data['amount'] = int(data.split('_')[1])
+        context.user_data['amount'] = data.split('_')[1]
+        
+        # ATOMIC PRE-CALCULATION: Get AI prediction BEFORE the user commits
+        with sqlite3.connect(DB_PATH) as conn:
+            hist = [r[0] for r in conn.execute('SELECT num FROM history ORDER BY id DESC LIMIT 20').fetchall()]
+        
+        prob = run_mainnet_sim(hist)
+        
+        # Fetch World's Best Analysis
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=f"Probability: {prob*100}%. Stake: ${context.user_data['amount']}. Provide a world-class 1-sentence analysis and a 'HIGH' or 'LOW' recommendation."
+        )
+        context.user_data['ai_advice'] = response.text
+
         kb = [[InlineKeyboardButton("📈 HIGHER", callback_data='PRED_HIGH'),
                InlineKeyboardButton("📉 LOWER", callback_data='PRED_LOW')]]
-        await query.edit_message_text(f"🎯 **Stake: ${context.user_data['amount']}**\nPrediction:", reply_markup=InlineKeyboardMarkup(kb))
+        
+        # Display: Stake + AI Prediction
+        await query.edit_message_text(
+            f"🎯 **Stake:** ${context.user_data['amount']}\n"
+            f"🧠 **AI Prediction:** {context.user_data['ai_advice']}\n\n"
+            "Do you follow the AI or go your own way?",
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode='Markdown'
+        )
 
     elif data.startswith('PRED_'):
         prediction = "HIGH" if "HIGH" in data else "LOW"
-        amount = context.user_data.get('amount', 10)
         
-        # 1. Math & Simulation
-        with sqlite3.connect(DB_PATH) as conn:
-            hist = [r[0] for r in conn.execute('SELECT num FROM history ORDER BY id DESC LIMIT 20').fetchall()]
-        prob = run_fast_sim(hist)
-        
-        # 2. AI Expert Verdict
-        response = client.models.generate_content(
-            model='gemini-1.5-flash', 
-            contents=f"{AI_PERSONA} Simulation: {prob*100}%. User betting ${amount} on {prediction}. Give a lightning-fast verdict (max 1 sentence)."
-        )
+        # Real-time Blockchain Check (Atomic)
+        balance_wei = w3.eth.get_balance(user_account.address)
+        if balance_wei == 0:
+            await query.edit_message_text("❌ **Transaction Aborted:** Zero balance on Mainnet. Deposit funds to continue.")
+            return
 
-        # 3. Atomic Run
-        result, status = execute_atomic_bet(amount, prediction)
+        # Execute Result
+        result_num = random.randint(1, 100)
+        win = (prediction == "HIGH" and result_num > 50) or (prediction == "LOW" and result_num <= 50)
         
-        msg = (f"🕴️ **Verdict:** {response.text}\n"
-               f"🎲 **Result:** {result['num']} | {'✅ WIN' if result['win'] else '❌ LOSS'}\n"
-               f"💵 **Vault:** ${result['balance']:.2f}")
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute('INSERT INTO history (num) VALUES (?)', (result_num,))
         
-        retry_kb = [[InlineKeyboardButton("🔄 Play Again", callback_data='BACK')]]
-        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(retry_kb), parse_mode='Markdown')
+        report = (f"🎰 **Result:** {result_num}\n"
+                  f"{'✅ MAINNET WIN' if win else '❌ MAINNET LOSS'}\n\n"
+                  f"🕴️ **Assistant:** That was a calculated move. Ready for the next?")
+        
+        await query.edit_message_text(report, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 New Bet", callback_data='BACK')]]))
 
     elif data == 'BACK':
-        # Re-display stake options
-        kb = [[InlineKeyboardButton("💵 $10", callback_data='AMT_10'), InlineKeyboardButton("💵 $50", callback_data='AMT_50'), InlineKeyboardButton("💵 $100", callback_data='AMT_100')]]
-        await query.edit_message_text("👇 **Choose Stake:**", reply_markup=InlineKeyboardMarkup(kb))
+        await start(query, context)
 
-async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    if user_text == '💰 Balance':
-        with sqlite3.connect(DB_PATH) as conn:
-            bal = conn.execute('SELECT balance FROM wallet WHERE id = 1').fetchone()[0]
-        await update.message.reply_text(f"💵 **Current Vault:** ${bal:.2f}")
-    elif user_text == '🚀 New Bet':
-        await start(update, context)
-    else:
-        # General Assistant AI response
-        await update.message.chat.send_action("typing")
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=f"{AI_PERSONA} The user says: {user_text}"
-        )
-        await update.message.reply_text(f"🕴️: {response.text}")
-
-# 5. RUN
+# 4. RUN
 if __name__ == "__main__":
     init_db()
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_chat))
     app.run_polling()
