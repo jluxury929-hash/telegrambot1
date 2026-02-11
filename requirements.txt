@@ -1,6 +1,6 @@
-numpy
 google-genai
 python-telegram-bot
-python-dotenv
+numpy
 web3
 eth-account
+python-dotenv
