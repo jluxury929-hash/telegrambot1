@@ -19,7 +19,13 @@ Account.enable_unaudited_hdwallet_features()
 # Deriving unique bot wallet index m/44'/60'/0'/0/1
 user_account = Account.from_mnemonic(os.getenv("WALLET_SEED"), account_path="m/44'/60'/0'/0/1")
 DB_PATH = "/data/betting_bot.db"
-AI_PERSONA = "You are a Bloomberg-level Quant Assistant. Be witty, elite, and conversational."
+
+# THE GENIUS PERSONA: High-Level Quant Analysis Instructions
+GENIUS_PROMPT = (
+    "You are a World-Class Quant Trading Genius. Your goal is to maximize the user's edge. "
+    "Analyze Mathematical Drift, Volatility clusters, and Mean Reversion. "
+    "Provide a sharp, elite, 1-sentence verdict that sounds like a Bloomberg terminal."
+)
 
 def init_db():
     os.makedirs("/data", exist_ok=True)
@@ -34,7 +40,8 @@ def run_quant_sim(data):
     returns = np.diff(data)
     mu, sigma = np.mean(returns), np.std(returns)
     sim_results = data[-1] + mu + (sigma * np.random.normal(size=100))
-    return np.sum(sim_results > 50) / 100
+    # Returns Probability, Drift, and Volatility for the Genius AI
+    return np.sum(sim_results > 50) / 100, mu, sigma
 
 async def run_shield_sim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """SIM 2: Atomic Shield (Blockchain Pre-Flight) - Safety Check"""
@@ -58,7 +65,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bottom_menu = [['💰 Check Balance', '🚀 New Bet'], ['🕴️ Talk to Assistant']]
     reply_markup = ReplyKeyboardMarkup(bottom_menu, resize_keyboard=True)
 
-    welcome = (f"🕴️ **Atomic Shield Interface**\n\n"
+    welcome = (f"🕴️ **Genius Atomic Interface**\n\n"
                f"Boss, your unique bot vault is active.\n"
                f"💵 **REAL BALANCE:** {balance:.4f} POL/ETH\n"
                f"📥 **DEPOSIT:** `{user_account.address}`\n\n"
@@ -77,16 +84,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith('AMT_'):
         context.user_data['amount'] = query.data.split('_')[1]
         
-        # RUN SIM 1: QUANT
+        # RUN SIM 1: QUANT (GENIUS DATA)
         with sqlite3.connect(DB_PATH) as conn:
             hist = [r[0] for r in conn.execute('SELECT num FROM history ORDER BY id DESC LIMIT 20').fetchall()]
-        prob = run_quant_sim(hist)
+        prob, drift, vol = run_quant_sim(hist)
         
+        # GENIUS AI VERDICT
         response = client.models.generate_content(
             model='gemini-1.5-flash',
-            contents=f"{AI_PERSONA} Simulation: {prob*100}%. Stake: ${context.user_data['amount']}. Provide a world-class verdict."
+            contents=f"{GENIUS_PROMPT}\nData: Prob High={prob}, Drift={drift}, Volatility={vol}. User bets ${context.user_data['amount']}."
         )
-        await query.message.reply_text(f"📊 **Sim 1 (Quant):** {prob*100:.1f}% HIGH probability.\n🕴️ **Verdict:** {response.text}")
+        await query.message.reply_text(f"📊 **Quant Analysis:** {prob*100:.1f}% Win Probability\n🕴️ **Genius Verdict:** {response.text}")
 
         kb = [[InlineKeyboardButton("📈 HIGHER", callback_data='PRED_HIGH'),
                InlineKeyboardButton("📉 LOWER", callback_data='PRED_LOW')],
@@ -108,7 +116,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(f"🛑 **ATOMIC SHIELD REVERT**\n\n**Reason:** {shield_msg}\n**Action:** Trade aborted to protect your funds.")
             return
 
-        # Shield Passed: Execute Result
+        # Execute Result
         result_num = random.randint(1, 100)
         win = (prediction == "HIGH" and result_num > 50) or (prediction == "LOW" and result_num <= 50)
         
@@ -125,26 +133,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(query, context)
 
 async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """The Conversational AI Assistant - Responds to ANYTHING"""
+    """Conversational Assistant - Genius Persona Catch-all"""
     text = update.message.text
     
-    # Menu routing
     if text == '💰 Check Balance':
         balance_wei = w3.eth.get_balance(user_account.address)
         balance = w3.from_wei(balance_wei, 'ether')
         await update.message.reply_text(f"💵 **Vault Balance:** {balance:.4f} POL/ETH")
         return
-    elif text == '🚀 New Bet':
+    elif text == '🚀 New Bet' or text == '🕴️ Talk to Assistant':
         await start(update, context)
         return
 
-    # General AI Conversation
+    # General AI Conversation with Genius persona
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
-    await asyncio.sleep(0.5) # Organic feel
+    await asyncio.sleep(0.5) 
     
     response = client.models.generate_content(
         model='gemini-1.5-flash',
-        contents=f"{AI_PERSONA} User says: {text}"
+        contents=f"{GENIUS_PROMPT}\nUser says: {text}"
     )
     await update.message.reply_text(f"🕴️: {response.text}")
 
