@@ -2,8 +2,9 @@ import os
 import random
 import sqlite3
 import numpy as np
+import asyncio
 from google import genai
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, constants
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from web3 import Web3
 from eth_account import Account
@@ -15,10 +16,10 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 w3 = Web3(Web3.HTTPProvider(os.getenv("RPC_URL", "https://polygon-rpc.com")))
 Account.enable_unaudited_hdwallet_features()
 
-# Deriving a unique wallet index (m/44'/60'/0'/0/1) to stay separate from default accounts
+# Deriving unique bot wallet index m/44'/60'/0'/0/1
 user_account = Account.from_mnemonic(os.getenv("WALLET_SEED"), account_path="m/44'/60'/0'/0/1")
 DB_PATH = "/data/betting_bot.db"
-AI_PERSONA = "You are a Bloomberg-level Quant Assistant. Be witty and elite."
+AI_PERSONA = "You are a Bloomberg-level Quant Assistant. Be witty, elite, and conversational."
 
 def init_db():
     os.makedirs("/data", exist_ok=True)
@@ -29,26 +30,22 @@ def init_db():
 
 # 2. DUAL-SIMULATION ENGINE
 def run_quant_sim(data):
-    """SIM 1: Quant Analysis (100 Iterations) - Logic for AI Verdict"""
+    """SIM 1: Quant Analysis (100 Iterations) - Market Math Logic"""
     returns = np.diff(data)
     mu, sigma = np.mean(returns), np.std(returns)
     sim_results = data[-1] + mu + (sigma * np.random.normal(size=100))
     return np.sum(sim_results > 50) / 100
 
-async def run_shield_sim(context):
+async def run_shield_sim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """SIM 2: Atomic Shield (Blockchain Pre-Flight) - Safety Check"""
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="🛡️ **Shield Simulating Mainnet Transaction...**")
     try:
-        # Check Mainnet Balance for Gas
         balance = w3.eth.get_balance(user_account.address)
         if balance < w3.to_wei(0.005, 'ether'):
             return False, "Low Mainnet Gas"
         
-        # Dry-run Simulation: Performs a virtual call to ensure the environment is valid
-        w3.eth.call({
-            'from': user_account.address,
-            'to': user_account.address, # Testing environment validity
-            'value': 0
-        })
+        # Dry-run Simulation: Virtual call to ensure network validity
+        w3.eth.call({'from': user_account.address, 'to': user_account.address, 'value': 0})
         return True, "Shield Verified"
     except Exception as e:
         return False, f"Mainnet Revert: {str(e)}"
@@ -75,11 +72,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    data = query.data
     await query.answer()
 
-    if data.startswith('AMT_'):
-        context.user_data['amount'] = data.split('_')[1]
+    if query.data.startswith('AMT_'):
+        context.user_data['amount'] = query.data.split('_')[1]
         
         # RUN SIM 1: QUANT
         with sqlite3.connect(DB_PATH) as conn:
@@ -102,12 +98,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
-    elif data.startswith('PRED_'):
-        prediction = "HIGH" if "HIGH" in data else "LOW"
+    elif query.data.startswith('PRED_'):
+        prediction = "HIGH" if "HIGH" in query.data else "LOW"
         
         # RUN SIM 2: SHIELD REVERT PROTECTION
-        await query.message.reply_text("🛡️ **Shield Simulating Mainnet Transaction...**")
-        shield_pass, shield_msg = await run_shield_sim(context)
+        shield_pass, shield_msg = await run_shield_sim(update, context)
         
         if not shield_pass:
             await query.message.reply_text(f"🛑 **ATOMIC SHIELD REVERT**\n\n**Reason:** {shield_msg}\n**Action:** Trade aborted to protect your funds.")
@@ -126,21 +121,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(report, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 New Bet", callback_data='BACK')]]))
 
-    elif data == 'BACK':
+    elif query.data == 'BACK':
         await start(query, context)
 
 async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """The Conversational AI Assistant - Responds to ANYTHING"""
     text = update.message.text
+    
+    # Menu routing
     if text == '💰 Check Balance':
         balance_wei = w3.eth.get_balance(user_account.address)
         balance = w3.from_wei(balance_wei, 'ether')
         await update.message.reply_text(f"💵 **Vault Balance:** {balance:.4f} POL/ETH")
+        return
     elif text == '🚀 New Bet':
         await start(update, context)
-    else:
-        await update.message.chat.send_action("typing")
-        response = client.models.generate_content(model='gemini-1.5-flash', contents=f"{AI_PERSONA} User says: {text}")
-        await update.message.reply_text(f"🕴️: {response.text}")
+        return
+
+    # General AI Conversation
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
+    await asyncio.sleep(0.5) # Organic feel
+    
+    response = client.models.generate_content(
+        model='gemini-1.5-flash',
+        contents=f"{AI_PERSONA} User says: {text}"
+    )
+    await update.message.reply_text(f"🕴️: {response.text}")
 
 if __name__ == "__main__":
     init_db()
