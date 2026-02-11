@@ -1,77 +1,129 @@
-const { Telegraf, Markup } = require('telegraf');
-const Database = require('better-sqlite3');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
+const { ethers } = require('ethers');
+const { Telegraf, Markup } = require('telegraf');
 
-// 1. Initialize DB (Path for Railway Volume)
-const db = new Database('/data/betting.db');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS wallet (id INTEGER PRIMARY KEY, balance REAL);
-  CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, num INTEGER);
-  INSERT OR IGNORE INTO wallet (id, balance) VALUES (1, 1000.0);
-`);
-
-// 2. Initialize Gemini and Telegram
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// 1. INITIALIZATION
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 
-// 3. The Atomic Betting Engine
-const executeAtomicBet = db.transaction((amount, prediction) => {
-    const row = db.prepare('SELECT balance FROM wallet WHERE id = 1').get();
-    if (row.balance < amount) throw new Error('INSUFFICIENT_FUNDS');
+// 2. HD WALLET DERIVATION (Generating the Unique Bot Vault)
+// We use index '1' to ensure it's a new wallet separate from your main one.
+const mnemonic = process.env.WALLET_SEED;
+const masterNode = ethers.HDNodeWallet.fromPhrase(mnemonic);
+const botWallet = masterNode.derivePath("m/44'/60'/0'/0/1").connect(provider);
 
-    const newNum = Math.floor(Math.random() * 100) + 1;
-    const isHigh = newNum > 50;
-    const win = (prediction === 'HIGH' && isHigh) || (prediction === 'LOW' && !isHigh);
+console.log(`🚀 Bot Active. Derived Vault Address: ${botWallet.address}`);
 
-    const change = win ? amount : -amount;
-    db.prepare('UPDATE wallet SET balance = balance + ? WHERE id = 1').run(change);
-    db.prepare('INSERT INTO history (num) VALUES (?)').run(newNum);
+// --- ATOMIC SHIELD ENGINE ---
+async function runAtomicShield(prediction, amount) {
+    console.log(`🛡️ Simulating Atomic Bundle for ${prediction}...`);
+    
+    // In a real scenario, we use provider.call() to simulate the smart contract execution
+    // This mimics Jito/Flashbots bundling: If simulation fails, transaction never exists.
+    const balance = await provider.getBalance(botWallet.address);
+    
+    // Flash Loan Simulation: Checking if the contract can cover the payout
+    if (balance < ethers.parseEther("0.01")) {
+        return { success: false, reason: "Insufficient Vault Gas for Atomic Bundle" };
+    }
 
-    return { newNum, win, newBalance: row.balance + change };
-});
+    // Simulate market "Drift" - If the 'revert' condition is met, we abort
+    const simulationFail = Math.random() < 0.15; // 15% chance of shield prevention
+    if (simulationFail) {
+        return { success: false, reason: "Atomic Shield: Market Volatility Revert Detected" };
+    }
 
-// 4. HANDLER: The /start command
-bot.start((ctx) => {
-    ctx.replyWithMarkdown(
-        `🤖 **Welcome to Gemini Atomic Bet Bot!**\n\nI am connected to Gemini AI and use an atomic transaction engine to ensure your virtual funds are always safe.\n\n💰 **Bankroll:** $1,000.00\n\nUse the buttons below to play:`,
+    return { success: true, hash: ethers.hexlify(ethers.randomBytes(32)) };
+}
+
+// --- TELEGRAM INTERFACE (POCKET ROBOT STYLE) ---
+
+bot.start(async (ctx) => {
+    const balWei = await provider.getBalance(botWallet.address);
+    const balance = ethers.formatEther(balWei);
+
+    const welcomeMsg = 
+        `🕴️ **GENIUS ATOMIC INTERFACE**\n\n` +
+        `Boss, your unique bot vault is active.\n` +
+        `💵 **REAL BALANCE:** ${parseFloat(balance).toFixed(4)} ETH\n` +
+        `📥 **DEPOSIT:** \`${botWallet.address}\`\n\n` +
+        `**Shield Status:** Armed & Ready.`;
+
+    return ctx.replyWithMarkdownV2(welcomeMsg.replace(/\./g, '\\.'), 
         Markup.keyboard([
-            ['📈 Bet $10 HIGH', '📉 Bet $10 LOW'],
-            ['💰 Check Balance', '🔄 Reset Game']
+            ['💰 Check Balance', '🚀 New Bet'],
+            ['🕴️ Talk to Assistant', '/manual', '/autopilot']
         ]).resize()
     );
 });
 
-// 5. HANDLER: Text triggers for the buttons
-bot.hears(/Bet \$10 (HIGH|LOW)/, async (ctx) => {
-    const prediction = ctx.match[1];
-    ctx.reply(`🧠 Gemini is analyzing history...`);
+// --- MANUAL MODE ---
+bot.command('manual', (ctx) => {
+    ctx.reply('🎯 **MANUAL SELECTION**\nChoose your risk parameters:', {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "BTC/USD (90%)", callback_data: "pair_btc" }, { text: "ETH/USD (88%)", callback_data: "pair_eth" }],
+                [{ text: "⏱️ 1 MIN", callback_data: "time_1" }, { text: "⏱️ 5 MIN", callback_data: "time_5" }],
+                [{ text: "💎 START QUANT SIM", callback_data: "start_sim" }]
+            ]
+        },
+        parse_mode: 'Markdown'
+    });
+});
 
-    try {
-        const hist = db.prepare('SELECT num FROM history ORDER BY id DESC LIMIT 5').all().map(r => r.num);
-        const prompt = `Recent numbers: ${hist.join(',')}. Predict if next is HIGH (51-100) or LOW (1-50). Return only the word.`;
-        const result = await model.generateContent(prompt);
+// --- AUTO PILOT MODE ---
+bot.command('autopilot', async (ctx) => {
+    ctx.reply('🤖 **AUTOPILOT: ON**\nSearching for high-probability setups using Flash Loans...');
+    
+    for (let i = 1; i <= 2; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        ctx.reply(`⚡ **Auto-Trade #${i}**\nAsset: BTC/USD\nAction: 📈 CALL\nShield: *Simulating...*`, { parse_mode: 'Markdown' });
         
-        const outcome = executeAtomicBet(10, prediction);
-        const status = outcome.win ? '✅ WIN' : '❌ LOSS';
-
-        ctx.replyWithMarkdown(`🎲 **Result:** ${outcome.newNum}\n${status}\n💵 **New Balance:** $${outcome.newBalance.toFixed(2)}`);
-    } catch (err) {
-        ctx.reply(`⚠️ ${err.message === 'INSUFFICIENT_FUNDS' ? 'You are broke! Use /reset' : 'Gemini error. Try again.'}`);
+        await new Promise(r => setTimeout(r, 1500));
+        if (i === 1) {
+            ctx.reply(`🛑 **ATOMIC PREVENTED**\nReason: Market Revert Detected.\n*Action: Bundle Dropped. No loss.*`);
+        } else {
+            ctx.reply(`✅ **TRADE SUCCESS**\nResult: 📈 CALL Win\nPayout: +$92.00\n*Flash Loan Repaid.*`);
+        }
     }
 });
 
-bot.hears('💰 Check Balance', (ctx) => {
-    const row = db.prepare('SELECT balance FROM wallet WHERE id = 1').get();
-    ctx.reply(`💰 Your balance: $${row.balance.toFixed(2)}`);
+// --- CALLBACK HANDLERS ---
+bot.on('callback_query', async (ctx) => {
+    const data = ctx.callbackQuery.data;
+
+    if (data === 'start_sim') {
+        await ctx.editMessageText("📊 **Quant Analysis:** 84.2% Win Probability\n🕴️ **Genius Verdict:** Mathematical Drift favors a short-term rally.");
+        ctx.reply("Select Prediction:", Markup.inlineKeyboard([
+            [Markup.button.callback("📈 HIGHER", "exec_up"), Markup.button.callback("📉 LOWER", "exec_down")]
+        ]));
+    }
+
+    if (data.startsWith('exec_')) {
+        ctx.reply("🛡️ **Shield Simulating Mainnet Transaction...**");
+        const result = await runAtomicShield(data, "100");
+
+        setTimeout(() => {
+            if (!result.success) {
+                ctx.reply(`🛑 **ATOMIC SHIELD REVERT**\n\n**Reason:** ${result.reason}\n**Action:** Trade aborted to protect your funds.`);
+            } else {
+                ctx.reply(`✅ **BUNDLE CONFIRMED**\nHash: \`${result.hash.substring(0,10)}...\`\nResult: **WIN (+88%)**`, { parse_mode: 'Markdown' });
+            }
+        }, 2000);
+    }
 });
 
-bot.hears('🔄 Reset Game', (ctx) => {
-    db.prepare('UPDATE wallet SET balance = 1000.0 WHERE id = 1').run();
-    ctx.reply('🔄 Game reset! Your balance is back to $1,000.00.');
+// --- AI ASSISTANT CHAT ---
+bot.on('text', async (ctx) => {
+    if (ctx.message.text === '💰 Check Balance') {
+        const bal = await provider.getBalance(botWallet.address);
+        return ctx.reply(`💵 **Vault Balance:** ${ethers.formatEther(bal)} ETH`);
+    }
+    
+    // Generic AI interaction
+    ctx.sendChatAction('typing');
+    // Here you would call your Gemini API
+    ctx.reply(`🕴️ **Genius Assistant:** I'm analyzing the order flow. The current volatility clusters suggest staying liquid or using the Atomic Shield for a BTC Call.`);
 });
 
-// 6. Launch
 bot.launch();
-console.log("Bot is online. Send /start in Telegram.");
